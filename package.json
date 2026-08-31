@@ -1,0 +1,19 @@
+{
+  "name": "wake",
+  "version": "0.0.0",
+  "description": "WebGPU Approachable Kernel Engine — Democratizing GPU-accelerated computing for the browser.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.11",
+    "@webgpu/types": "^0.1.72",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}
