@@ -2,20 +2,28 @@ import type { Wake } from "./wake";
 
 export type WakeArray = Float32Array | Uint32Array | Int32Array;
 
-type WakeArrayCtor = Float32ArrayConstructor | Uint32ArrayConstructor | Int32ArrayConstructor;
+export type WakeArrayCtor<T extends WakeArray> = {
+  new (buffer: ArrayBufferLike): T;
+  readonly BYTES_PER_ELEMENT: number;
+};
 
 export class WakeBuffer<T extends WakeArray = Float32Array> {
   private readonly wake: Wake;
+  private readonly owned: boolean;
   private destroyed = false;
 
   readonly raw: GPUBuffer;
-  readonly view: WakeArrayCtor;
+  readonly view: WakeArrayCtor<T>;
   readonly length: number;
   readonly byteLength: number;
 
-  /** Wraps an already-created GPUBuffer. Prefer {@link Wake.buffer} to create one from a typed array. */
-  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor) {
+  /**
+   * Low-level constructor, this shouldn't be called directly. Use {@link Wake.buffer} to create a buffer from a
+   * typed array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
+   */
+  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor<T>, owned = false) {
     this.wake = wake;
+    this.owned = owned;
     this.raw = raw;
     this.view = view;
     this.byteLength = raw.size;
@@ -39,7 +47,7 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
       await staging.mapAsync(GPUMapMode.READ);
       const copy = staging.getMappedRange().slice(0);
       staging.unmap();
-      return new this.view(copy) as T;
+      return new this.view(copy);
     } finally {
       staging.destroy();
     }
@@ -60,7 +68,7 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.raw.destroy();
+    if (this.owned) this.raw.destroy();
   }
 }
 
@@ -76,8 +84,20 @@ export function fromArray<T extends WakeArray>(wake: Wake, data: T): WakeBuffer<
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
   });
-  const view = data.constructor as WakeArrayCtor;
+  const view = data.constructor as WakeArrayCtor<T>;
   new view(raw.getMappedRange()).set(data);
   raw.unmap();
+  return new WakeBuffer<T>(wake, raw, view, true);
+}
+
+export function wrapBuffer<T extends WakeArray>(
+  wake: Wake,
+  raw: GPUBuffer,
+  view: WakeArrayCtor<T>,
+): WakeBuffer<T> {
+  const required_usage = GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+  if ((raw.usage & required_usage) !== required_usage) {
+    throw new Error("wake.wrap expects a buffer created with COPY_SRC and COPY_DST usage");
+  }
   return new WakeBuffer<T>(wake, raw, view);
 }
