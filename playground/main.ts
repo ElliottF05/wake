@@ -17,3 +17,15 @@ buf2.write(written);
 const readBack2 = await buf2.read();
 console.log("written:", written);
 console.log("read back:", readBack2);
+
+// 3. wrap an externally-created GPUBuffer, then write + read through it
+const rawInput = new Int32Array([-1, -2, -3]);
+const rawBuf = wake.device.createBuffer({
+  size: rawInput.byteLength,
+  usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+});
+const wrapped = wake.wrap(rawBuf, Int32Array);
+wrapped.write(rawInput);
+const readBack3 = await wrapped.read();
+console.log("wrapped write:", rawInput);
+console.log("read back:   ", readBack3);
