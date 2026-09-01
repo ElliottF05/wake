@@ -6,7 +6,8 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite playground",
+    "build": "vite build playground",
     "typecheck": "tsc --noEmit",
     "check": "biome check ."
   },
