@@ -60,9 +60,8 @@ export function createBuffer<T extends WakeArray>(wake: Wake, data: T): WakeBuff
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     mappedAtCreation: true,
   });
-  new Uint8Array(raw.getMappedRange()).set(
-    new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-  );
+  const view = data.constructor as WakeView<T>;
+  new view(raw.getMappedRange()).set(data);
   raw.unmap();
-  return new WakeBuffer<T>(wake, raw, data.constructor as WakeView<T>, data.length);
+  return new WakeBuffer<T>(wake, raw, view, data.length);
 }
