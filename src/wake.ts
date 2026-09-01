@@ -1,5 +1,7 @@
 // TODO: add comments to public-facing contents when things are more stable
 
+import { createBuffer, type WakeArray, type WakeBuffer } from "./buffer";
+
 export interface WakeOptions {
   device?: GPUDevice;
   powerPreference?: GPUPowerPreference;
@@ -35,6 +37,11 @@ export class Wake {
       throw new Error("Failed to acquire a WebGPU device", { cause });
     }
   }
+
+  buffer<T extends WakeArray>(data: T): WakeBuffer<T> {
+    return createBuffer(this, data);
+  }
+  // TODO: add a `wrap` function that wraps an existing `GPUBuffer` as a `WakeBuffer`
 
   destroy(): void {
     this.device.destroy();
