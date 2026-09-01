@@ -18,8 +18,8 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   readonly byteLength: number;
 
   /**
-   * Low-level constructor, this shouldn't be called directly. Use {@link Wake.buffer} to create a buffer from a
-   * typed array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
+   * Low-level constructor, this shouldn't be used directly. Use {@link Wake.buffer} to create
+   * a buffer from a typed JS array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
    */
   constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor<T>, owned = false) {
     this.wake = wake;
