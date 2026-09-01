@@ -1,4 +1,12 @@
-// TODO: add comments to public-facing contents when things are more stable
+// TODO: add comments to public-facing contents (not just in this file) when things are more stable
+
+import {
+  fromArray,
+  type WakeArray,
+  type WakeArrayCtor,
+  type WakeBuffer,
+  wrapBuffer,
+} from "./buffer";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -29,11 +37,19 @@ export class Wake {
       throw new Error("No WebGPU adapter available");
     }
     try {
-      const device = await adapter.requestDevice();
+      const device = await adapter.requestDevice({ label: "wake:device" });
       return new Wake(device);
     } catch (cause) {
       throw new Error("Failed to acquire a WebGPU device", { cause });
     }
+  }
+
+  buffer<T extends WakeArray>(data: T): WakeBuffer<T> {
+    return fromArray(this, data);
+  }
+
+  wrap<T extends WakeArray>(raw: GPUBuffer, view: WakeArrayCtor<T>): WakeBuffer<T> {
+    return wrapBuffer(this, raw, view);
   }
 
   destroy(): void {
