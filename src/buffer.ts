@@ -5,8 +5,8 @@ export type WakeArray = Float32Array | Uint32Array | Int32Array;
 type WakeArrayCtor = Float32ArrayConstructor | Uint32ArrayConstructor | Int32ArrayConstructor;
 
 export class WakeBuffer<T extends WakeArray = Float32Array> {
-  readonly #wake: Wake;
-  #destroyed = false;
+  private readonly wake: Wake;
+  private destroyed = false;
 
   readonly raw: GPUBuffer;
   readonly view: WakeArrayCtor;
@@ -14,7 +14,7 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   readonly byteLength: number;
 
   private constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor, length: number) {
-    this.#wake = wake;
+    this.wake = wake;
     this.raw = raw;
     this.view = view;
     this.length = length;
@@ -41,10 +41,10 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   }
 
   async read(): Promise<T> {
-    if (this.#destroyed) {
+    if (this.destroyed) {
       throw new Error("WakeBuffer.read called on a destroyed buffer");
     }
-    const device = this.#wake.device;
+    const device = this.wake.device;
     const staging = device.createBuffer({
       label: "wake:readback",
       size: this.byteLength,
@@ -64,7 +64,7 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   }
 
   write(data: T): void {
-    if (this.#destroyed) {
+    if (this.destroyed) {
       throw new Error("WakeBuffer.write called on a destroyed buffer");
     }
     if (data.byteLength !== this.byteLength) {
@@ -72,12 +72,12 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
         `WakeBuffer.write expected ${this.byteLength} bytes but received ${data.byteLength}`,
       );
     }
-    this.#wake.device.queue.writeBuffer(this.raw, 0, data);
+    this.wake.device.queue.writeBuffer(this.raw, 0, data);
   }
 
   destroy(): void {
-    if (this.#destroyed) return;
-    this.#destroyed = true;
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.raw.destroy();
   }
 }
