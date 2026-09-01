@@ -95,8 +95,8 @@ export function wrapBuffer<T extends WakeArray>(
   raw: GPUBuffer,
   view: WakeArrayCtor<T>,
 ): WakeBuffer<T> {
-  const required_usage = GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
-  if ((raw.usage & required_usage) !== required_usage) {
+  const requiredUsage = GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+  if ((raw.usage & requiredUsage) !== requiredUsage) {
     throw new Error("wake.wrap expects a buffer created with COPY_SRC and COPY_DST usage");
   }
   return new WakeBuffer<T>(wake, raw, view);
