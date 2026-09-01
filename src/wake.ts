@@ -1,3 +1,5 @@
+// TODO: add comments to public-facing contents when things are more stable
+
 export interface WakeOptions {
   device?: GPUDevice;
   powerPreference?: GPUPowerPreference;
