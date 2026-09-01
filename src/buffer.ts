@@ -13,31 +13,13 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   readonly length: number;
   readonly byteLength: number;
 
-  private constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor, length: number) {
+  /** Wraps an already-created GPUBuffer. Prefer {@link Wake.buffer} to create one from a typed array. */
+  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor, length: number) {
     this.wake = wake;
     this.raw = raw;
     this.view = view;
     this.length = length;
     this.byteLength = length * view.BYTES_PER_ELEMENT;
-  }
-
-  /** Low-level constructor. Prefer {@link Wake.buffer}, which calls this with a more ergonomic signature. */
-  static fromArray<T extends WakeArray>(wake: Wake, data: T): WakeBuffer<T> {
-    if (
-      !(data instanceof Float32Array || data instanceof Uint32Array || data instanceof Int32Array)
-    ) {
-      throw new Error("wake.buffer expects a Float32Array, Uint32Array, or Int32Array");
-    }
-    const raw = wake.device.createBuffer({
-      label: "wake:storage",
-      size: data.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-      mappedAtCreation: true,
-    });
-    const view = data.constructor as WakeArrayCtor;
-    new view(raw.getMappedRange()).set(data);
-    raw.unmap();
-    return new WakeBuffer<T>(wake, raw, view, data.length);
   }
 
   async read(): Promise<T> {
@@ -80,4 +62,22 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
     this.destroyed = true;
     this.raw.destroy();
   }
+}
+
+export function fromArray<T extends WakeArray>(wake: Wake, data: T): WakeBuffer<T> {
+  if (
+    !(data instanceof Float32Array || data instanceof Uint32Array || data instanceof Int32Array)
+  ) {
+    throw new Error("wake.buffer expects a Float32Array, Uint32Array, or Int32Array");
+  }
+  const raw = wake.device.createBuffer({
+    label: "wake:storage",
+    size: data.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    mappedAtCreation: true,
+  });
+  const view = data.constructor as WakeArrayCtor;
+  new view(raw.getMappedRange()).set(data);
+  raw.unmap();
+  return new WakeBuffer<T>(wake, raw, view, data.length);
 }
