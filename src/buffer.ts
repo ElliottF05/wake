@@ -14,12 +14,12 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
   readonly byteLength: number;
 
   /** Wraps an already-created GPUBuffer. Prefer {@link Wake.buffer} to create one from a typed array. */
-  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor, length: number) {
+  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor) {
     this.wake = wake;
     this.raw = raw;
     this.view = view;
-    this.length = length;
-    this.byteLength = length * view.BYTES_PER_ELEMENT;
+    this.byteLength = raw.size;
+    this.length = raw.size / view.BYTES_PER_ELEMENT;
   }
 
   async read(): Promise<T> {
@@ -79,5 +79,5 @@ export function fromArray<T extends WakeArray>(wake: Wake, data: T): WakeBuffer<
   const view = data.constructor as WakeArrayCtor;
   new view(raw.getMappedRange()).set(data);
   raw.unmap();
-  return new WakeBuffer<T>(wake, raw, view, data.length);
+  return new WakeBuffer<T>(wake, raw, view);
 }
