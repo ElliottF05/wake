@@ -1,6 +1,6 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
-import { createBuffer, type WakeArray, type WakeBuffer } from "./buffer";
+import { type WakeArray, WakeBuffer } from "./buffer";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -39,7 +39,7 @@ export class Wake {
   }
 
   buffer<T extends WakeArray>(data: T): WakeBuffer<T> {
-    return createBuffer(this, data);
+    return WakeBuffer.fromArray(this, data);
   }
   // TODO: add a `wrap` function that wraps an existing `GPUBuffer` as a `WakeBuffer`
 
