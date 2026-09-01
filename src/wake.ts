@@ -1,4 +1,4 @@
-// TODO: add comments to public-facing contents when things are more stable
+// TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
 import { createBuffer, type WakeArray, type WakeBuffer } from "./buffer";
 
