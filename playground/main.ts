@@ -22,7 +22,7 @@ console.log("read back:", readBack2);
 const arr3 = new Int32Array([-1, -2, -3]);
 const rawBuf = wake.device.createBuffer({
   size: arr3.byteLength,
-  usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
 });
 const wrapped = wake.wrap(rawBuf, Int32Array);
 wrapped.write(arr3);
