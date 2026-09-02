@@ -7,6 +7,8 @@ export type WakeArrayCtor<T extends WakeArray> = {
   readonly BYTES_PER_ELEMENT: number;
 };
 
+const BUFFER_USAGE = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
+
 export class WakeBuffer<T extends WakeArray = Float32Array> {
   private readonly wake: Wake;
   private readonly owned: boolean;
@@ -22,6 +24,9 @@ export class WakeBuffer<T extends WakeArray = Float32Array> {
    * a buffer from a typed JS array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
    */
   constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor<T>, owned = false) {
+    if ((raw.usage & BUFFER_USAGE) !== BUFFER_USAGE) {
+      throw new Error("WakeBuffer requires a GPUBuffer with STORAGE, COPY_SRC, and COPY_DST usage");
+    }
     this.wake = wake;
     this.owned = owned;
     this.raw = raw;
@@ -81,23 +86,11 @@ export function fromArray<T extends WakeArray>(wake: Wake, data: T): WakeBuffer<
   const raw = wake.device.createBuffer({
     label: "wake:storage",
     size: data.byteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    usage: BUFFER_USAGE,
     mappedAtCreation: true,
   });
   const view = data.constructor as WakeArrayCtor<T>;
   new view(raw.getMappedRange()).set(data);
   raw.unmap();
   return new WakeBuffer<T>(wake, raw, view, true);
-}
-
-export function wrapBuffer<T extends WakeArray>(
-  wake: Wake,
-  raw: GPUBuffer,
-  view: WakeArrayCtor<T>,
-): WakeBuffer<T> {
-  const requiredUsage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
-  if ((raw.usage & requiredUsage) !== requiredUsage) {
-    throw new Error("wake.wrap expects a buffer created with COPY_SRC and COPY_DST usage");
-  }
-  return new WakeBuffer<T>(wake, raw, view);
 }

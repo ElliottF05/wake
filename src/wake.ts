@@ -1,12 +1,6 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
-import {
-  fromArray,
-  type WakeArray,
-  type WakeArrayCtor,
-  type WakeBuffer,
-  wrapBuffer,
-} from "./buffer";
+import { fromArray, type WakeArray, type WakeArrayCtor, WakeBuffer } from "./buffer";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -49,7 +43,7 @@ export class Wake {
   }
 
   wrap<T extends WakeArray>(raw: GPUBuffer, view: WakeArrayCtor<T>): WakeBuffer<T> {
-    return wrapBuffer(this, raw, view);
+    return new WakeBuffer(this, raw, view);
   }
 
   destroy(): void {
