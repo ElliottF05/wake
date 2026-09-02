@@ -1,6 +1,7 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
 import { fromArray, type WakeArray, type WakeArrayCtor, WakeBuffer } from "./buffer";
+import { reduce } from "./reduce";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -38,6 +39,10 @@ export class Wake {
     }
   }
 
+  destroy(): void {
+    this.device.destroy();
+  }
+
   buffer<T extends WakeArray>(data: T): WakeBuffer<T> {
     return fromArray(this, data);
   }
@@ -46,7 +51,7 @@ export class Wake {
     return new WakeBuffer(this, raw, view);
   }
 
-  destroy(): void {
-    this.device.destroy();
+  sum<T extends WakeArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
+    return reduce(this, input, "sum");
   }
 }
