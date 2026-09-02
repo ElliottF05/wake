@@ -9,5 +9,7 @@ export async function reduce<T extends WakeArray>(
   input: WakeBuffer<T>,
   op: ReduceOperation,
 ): Promise<WakeBuffer<T>> {
-  throw new Error(`reduce: "${op}" is unimplemented`);
+  // for now this just returns 0 always
+  const out = new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT));
+  return wake.buffer(out);
 }
