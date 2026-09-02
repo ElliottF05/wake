@@ -9,6 +9,9 @@ export async function reduce<T extends WakeArray>(
   input: WakeBuffer<T>,
   op: ReduceOperation,
 ): Promise<WakeBuffer<T>> {
+  if (op !== "sum") {
+    throw new Error(`reduce: unsupported operation "${op}"`);
+  }
   // for now this just returns 0 always
   const out = new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT));
   return wake.buffer(out);
