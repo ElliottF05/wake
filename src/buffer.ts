@@ -37,7 +37,7 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
 
   async read(): Promise<T> {
     if (this.destroyed) {
-      throw new Error("attempted to read destroyed WakeBuffer");
+      throw new Error("attempted to read from a destroyed WakeBuffer");
     }
     const device = this.wake.device;
     const staging = device.createBuffer({
