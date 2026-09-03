@@ -58,7 +58,8 @@ function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
   );
 }
 
-// TODO: actually implement this, for now it just does output[0] = 42 + 0;
+// for now, this just does a linear scan on one thread, very inefficient!
+// TODO: make this faster
 function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl): string {
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
@@ -70,8 +71,12 @@ fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
 
 @compute @workgroup_size(1)
 fn main() {
-  output[0] = combine(${dtype}(42), ${dtype}(${op.identity}));
-  _ = input[0]; // keep binding 0 statically used so layout: "auto" includes it
+  var n = arrayLength(&input);
+  var out = ${dtype}(0);
+  for (var i: u32 = 0; i < n; i++) {
+    out = combine(out, input[i]);
+  }
+  output[0] = out;
 }
 `;
 }
