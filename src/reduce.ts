@@ -18,7 +18,7 @@ const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
   min: {
     combine: "min(a, b)",
     identity: {
-      f32: "bitcast<f32>(0x7f800000u)", // inf
+      f32: "0x1.fffffep+127f", // f32 max
       u32: "0xffffffffu",
       i32: "2147483647i",
     },
@@ -26,7 +26,7 @@ const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
   max: {
     combine: "max(a, b)",
     identity: {
-      f32: "bitcast<f32>(0xff800000u)", // -inf
+      f32: "-0x1.fffffep+127f", // f32 min
       u32: "0u",
       i32: "-2147483647i - 1i",
     },
