@@ -1,17 +1,36 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
 import type { Wake } from "./wake";
 
-export type ReduceOp = "sum"; // TODO: add other operations
-
-type ReduceOpWgsl = {
-  identity: string;
-  combine: string;
-};
+export type ReduceOp = "sum" | "min" | "max";
 
 type WgslDtype = "f32" | "u32" | "i32";
 
+type ReduceOpWgsl = {
+  combine: string;
+  identity: Record<WgslDtype, string>;
+};
+
 const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
-  sum: { identity: "0", combine: "a + b" },
+  sum: {
+    combine: "a + b",
+    identity: { f32: "0f", u32: "0u", i32: "0i" },
+  },
+  min: {
+    combine: "min(a, b)",
+    identity: {
+      f32: "0x1.fffffep+127f", // f32 max
+      u32: "0xffffffffu",
+      i32: "2147483647i",
+    },
+  },
+  max: {
+    combine: "max(a, b)",
+    identity: {
+      f32: "-0x1.fffffep+127f", // f32 min
+      u32: "0u",
+      i32: "-2147483647i - 1i",
+    },
+  },
 };
 
 export async function reduce<T extends WakeSupportedArray>(
@@ -58,20 +77,27 @@ function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
   );
 }
 
-// TODO: actually implement this, for now it just does output[0] = 42 + 0;
+// for now, this just does a linear scan on one thread, very inefficient!
+// TODO: make this faster
 function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl): string {
+  const combine = op.combine;
+  const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;
 
 fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${op.combine};
+  return ${combine};
 }
 
 @compute @workgroup_size(1)
 fn main() {
-  output[0] = combine(${dtype}(42), ${dtype}(${op.identity}));
-  _ = input[0]; // keep binding 0 statically used so layout: "auto" includes it
+  var n = arrayLength(&input);
+  var out = ${identity};
+  for (var i: u32 = 0; i < n; i++) {
+    out = combine(out, input[i]);
+  }
+  output[0] = out;
 }
 `;
 }

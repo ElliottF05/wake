@@ -62,4 +62,12 @@ export class Wake {
   sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
     return reduce(this, input, "sum");
   }
+
+  min<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
+    return reduce(this, input, "min");
+  }
+
+  max<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
+    return reduce(this, input, "max");
+  }
 }

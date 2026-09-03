@@ -70,13 +70,63 @@ function checkScalar(name: string, actual: ArrayLike<number>, expected: number):
   checkArray(name, await wrapped.read(), input);
 }
 
-// 4. sum() against the JS equivalent
-{
-  const name = "sum (Float32)";
-  const input = new Float32Array([1.5, 2.25, 3.125, 4, 5, 6, 7, 8]);
-  const expected = input.reduce((acc, x) => acc + x, 0);
-  const out = await (await wake.sum(wake.buffer(input))).read();
-  checkScalar(name, out, expected);
+// 4. test correctness against JS implementation for each (op, dtype)
+const reductions = {
+  sum: { f: (a: number, b: number) => a + b, identity: 0 },
+  min: { f: (a: number, b: number) => Math.min(a, b), identity: Number.POSITIVE_INFINITY },
+  max: { f: (a: number, b: number) => Math.max(a, b), identity: Number.NEGATIVE_INFINITY },
+};
+
+const datasets = [
+  { dtype: "f32", data: new Float32Array([3.5, 1.25, 4, 1, 5, 9.5, 2, 6]) },
+  { dtype: "u32", data: new Uint32Array([3, 1, 4, 1, 5, 9, 2, 6]) },
+  { dtype: "i32", data: new Int32Array([3, -1, 4, -1, 5, -9, 2, -6]) },
+];
+
+for (const { dtype, data } of datasets) {
+  for (const op of ["sum", "min", "max"] as const) {
+    const { f, identity } = reductions[op];
+    const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity);
+    const result = await (await wake[op](wake.buffer(data))).read();
+    checkScalar(`correctness (${op}, ${dtype})`, result, expected);
+  }
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`Correctness test results: ${passed} passed, ${failed} failed`);
+console.log(`Beginning performance tests:`)
+
+// 5. performance testing on increasing input sizes.
+const MIN_LOG2 = 16;
+const MAX_LOG2 = 20;
+const WARMUP = 5;
+const ITERS = 20;
+const BATCHES = 4;
+
+for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  const n = 2 ** log2;
+  const data = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  const input = wake.buffer(data);
+
+  for (let i = 0; i < WARMUP; i++) {
+    await wake.sum(input);
+  }
+  await wake.device.queue.onSubmittedWorkDone();
+
+  const perCall: number[] = [];
+  for (let b = 0; b < BATCHES; b++) {
+    const t0 = performance.now();
+    for (let i = 0; i < ITERS; i++) {
+      await wake.sum(input);
+    }
+    await wake.device.queue.onSubmittedWorkDone();
+    perCall.push((performance.now() - t0) / ITERS);
+  }
+
+  perCall.sort((a, b) => a - b);
+  const ms = perCall[Math.floor(perCall.length / 2)];
+  const gbps = (n * 4) / (ms * 1e6);
+  console.log(`  2^${log2} (${n}): ${ms.toFixed(3)} ms, ${gbps.toFixed(5)} GB/s`);
+}
