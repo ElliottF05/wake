@@ -1,6 +1,6 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
-import { fromArray, type WakeArray, type WakeArrayCtor, WakeBuffer } from "./buffer";
+import { fromArray, type WakeArrayCtor, WakeBuffer, type WakeSupportedArray } from "./buffer";
 import { reduce } from "./reduce";
 
 export interface WakeOptions {
@@ -29,13 +29,13 @@ export class Wake {
     }
     const adapter = await navigator.gpu.requestAdapter({ powerPreference });
     if (!adapter) {
-      throw new Error("No WebGPU adapter available");
+      throw new Error("no WebGPU adapter available");
     }
     try {
       const device = await adapter.requestDevice({ label: "wake:device" });
       return new Wake(device);
     } catch (cause) {
-      throw new Error("Failed to acquire a WebGPU device", { cause });
+      throw new Error("failed to acquire a WebGPU device", { cause });
     }
   }
 
@@ -43,15 +43,15 @@ export class Wake {
     this.device.destroy();
   }
 
-  buffer<T extends WakeArray>(data: T): WakeBuffer<T> {
+  buffer<T extends WakeSupportedArray>(data: T): WakeBuffer<T> {
     return fromArray(this, data);
   }
 
-  wrap<T extends WakeArray>(raw: GPUBuffer, view: WakeArrayCtor<T>): WakeBuffer<T> {
+  wrap<T extends WakeSupportedArray>(raw: GPUBuffer, view: WakeArrayCtor<T>): WakeBuffer<T> {
     return new WakeBuffer(this, raw, view);
   }
 
-  sum<T extends WakeArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
+  sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
     return reduce(this, input, "sum");
   }
 }
