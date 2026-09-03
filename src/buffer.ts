@@ -2,7 +2,7 @@ import type { Wake } from "./wake";
 
 export type WakeSupportedArray = Float32Array | Uint32Array | Int32Array;
 
-export type WakeArrayCtor<T extends WakeSupportedArray> = {
+export type WakeSupportedArrayConstructor<T extends WakeSupportedArray> = {
   new (buffer: ArrayBufferLike): T;
   readonly BYTES_PER_ELEMENT: number;
 };
@@ -15,7 +15,7 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
   private destroyed = false;
 
   readonly raw: GPUBuffer;
-  readonly view: WakeArrayCtor<T>;
+  readonly view: WakeSupportedArrayConstructor<T>;
   readonly length: number;
   readonly byteLength: number;
 
@@ -23,7 +23,7 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
    * Low-level constructor, this shouldn't be used directly. Use {@link Wake.buffer} to create
    * a buffer from a typed JS array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
    */
-  constructor(wake: Wake, raw: GPUBuffer, view: WakeArrayCtor<T>, owned = false) {
+  constructor(wake: Wake, raw: GPUBuffer, view: WakeSupportedArrayConstructor<T>, owned = false) {
     if ((raw.usage & BUFFER_USAGE) !== BUFFER_USAGE) {
       throw new Error("WakeBuffer requires a GPUBuffer with STORAGE, COPY_SRC, and COPY_DST usage");
     }
@@ -89,7 +89,7 @@ export function fromArray<T extends WakeSupportedArray>(wake: Wake, data: T): Wa
     usage: BUFFER_USAGE,
     mappedAtCreation: true,
   });
-  const view = data.constructor as WakeArrayCtor<T>;
+  const view = data.constructor as WakeSupportedArrayConstructor<T>;
   new view(raw.getMappedRange()).set(data);
   raw.unmap();
   return new WakeBuffer<T>(wake, raw, view, true);

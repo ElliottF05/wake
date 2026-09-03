@@ -1,6 +1,11 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
-import { fromArray, type WakeArrayCtor, WakeBuffer, type WakeSupportedArray } from "./buffer";
+import {
+  fromArray,
+  WakeBuffer,
+  type WakeSupportedArray,
+  type WakeSupportedArrayConstructor,
+} from "./buffer";
 import { reduce } from "./reduce";
 
 export interface WakeOptions {
@@ -47,7 +52,10 @@ export class Wake {
     return fromArray(this, data);
   }
 
-  wrap<T extends WakeSupportedArray>(raw: GPUBuffer, view: WakeArrayCtor<T>): WakeBuffer<T> {
+  wrap<T extends WakeSupportedArray>(
+    raw: GPUBuffer,
+    view: WakeSupportedArrayConstructor<T>,
+  ): WakeBuffer<T> {
     return new WakeBuffer(this, raw, view);
   }
 
