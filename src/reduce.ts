@@ -3,17 +3,34 @@ import type { Wake } from "./wake";
 
 export type ReduceOp = "sum" | "min" | "max";
 
-type ReduceOpWgsl = {
-  identity: string;
-  combine: string;
-};
-
 type WgslDtype = "f32" | "u32" | "i32";
 
+type ReduceOpWgsl = {
+  combine: string;
+  identity: Record<WgslDtype, string>;
+};
+
 const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
-  sum: { identity: "0", combine: "a + b" },
-  min: { identity: "", combine: "min(a, b)" },
-  max: { identity: "", combine: "max(a, b)" }
+  sum: {
+    combine: "a + b",
+    identity: { f32: "0f", u32: "0u", i32: "0i" },
+  },
+  min: {
+    combine: "min(a, b)",
+    identity: {
+      f32: "bitcast<f32>(0x7f800000u)", // inf
+      u32: "0xffffffffu",
+      i32: "2147483647i",
+    },
+  },
+  max: {
+    combine: "max(a, b)",
+    identity: {
+      f32: "bitcast<f32>(0xff800000u)", // -inf
+      u32: "0u",
+      i32: "-2147483647i - 1i",
+    },
+  },
 };
 
 export async function reduce<T extends WakeSupportedArray>(
@@ -63,18 +80,20 @@ function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
 // for now, this just does a linear scan on one thread, very inefficient!
 // TODO: make this faster
 function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl): string {
+  const combine = op.combine;
+  const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;
 
 fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${op.combine};
+  return ${combine};
 }
 
 @compute @workgroup_size(1)
 fn main() {
   var n = arrayLength(&input);
-  var out = ${dtype}(0);
+  var out = ${identity};
   for (var i: u32 = 0; i < n; i++) {
     out = combine(out, input[i]);
   }
