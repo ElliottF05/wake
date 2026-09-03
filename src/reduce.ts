@@ -1,7 +1,7 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
 import type { Wake } from "./wake";
 
-export type ReduceOp = "sum" | "min" | "max"; // TODO: add other operations
+export type ReduceOp = "sum" | "min" | "max";
 
 type ReduceOpWgsl = {
   identity: string;
