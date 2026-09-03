@@ -14,7 +14,6 @@ const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
   sum: { identity: "0", combine: "a + b" },
 };
 
-// TODO: implement this
 export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
