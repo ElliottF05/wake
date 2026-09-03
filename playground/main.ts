@@ -70,13 +70,26 @@ function checkScalar(name: string, actual: ArrayLike<number>, expected: number):
   checkArray(name, await wrapped.read(), input);
 }
 
-// 4. sum() against the JS equivalent
-{
-  const name = "sum (Float32)";
-  const input = new Float32Array([1.5, 2.25, 3.125, 4, 5, 6, 7, 8]);
-  const expected = input.reduce((acc, x) => acc + x, 0);
-  const out = await (await wake.sum(wake.buffer(input))).read();
-  checkScalar(name, out, expected);
+// 4. test correctness against JS implementation for each (op, dtype)
+const reductions = {
+  sum: { f: (a: number, b: number) => a + b, identity: 0 },
+  min: { f: (a: number, b: number) => Math.min(a, b), identity: Number.POSITIVE_INFINITY },
+  max: { f: (a: number, b: number) => Math.max(a, b), identity: Number.NEGATIVE_INFINITY },
+};
+
+const datasets = [
+  { dtype: "f32", data: new Float32Array([3.5, 1.25, 4, 1, 5, 9.5, 2, 6]) },
+  { dtype: "u32", data: new Uint32Array([3, 1, 4, 1, 5, 9, 2, 6]) },
+  { dtype: "i32", data: new Int32Array([3, -1, 4, -1, 5, -9, 2, -6]) },
+];
+
+for (const { dtype, data } of datasets) {
+  for (const op of ["sum", "min", "max"] as const) {
+    const { f, identity } = reductions[op];
+    const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity);
+    const result = await (await wake[op](wake.buffer(data))).read();
+    checkScalar(`correctness (${op}, ${dtype})`, result, expected);
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
