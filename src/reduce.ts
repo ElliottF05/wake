@@ -1,7 +1,7 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
 import type { Wake } from "./wake";
 
-export type ReduceOp = "sum"; // TODO: add other operations
+export type ReduceOp = "sum" | "min" | "max"; // TODO: add other operations
 
 type ReduceOpWgsl = {
   identity: string;
@@ -12,6 +12,8 @@ type WgslDtype = "f32" | "u32" | "i32";
 
 const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
   sum: { identity: "0", combine: "a + b" },
+  min: { identity: "", combine: "min(a, b)" },
+  max: { identity: "", combine: "max(a, b)" }
 };
 
 export async function reduce<T extends WakeSupportedArray>(
