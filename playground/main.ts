@@ -93,3 +93,39 @@ for (const { dtype, data } of datasets) {
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
+
+// 5. performance testing on increasing input sizes.
+const MIN_LOG2 = 16;
+const MAX_LOG2 = 20;
+const WARMUP = 5;
+const ITERS = 20;
+const BATCHES = 4;
+
+for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  const n = 2 ** log2;
+  const data = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  const input = wake.buffer(data);
+
+  for (let i = 0; i < WARMUP; i++) {
+    await wake.sum(input);
+  }
+  await wake.device.queue.onSubmittedWorkDone();
+
+  const perCall: number[] = [];
+  for (let b = 0; b < BATCHES; b++) {
+    const t0 = performance.now();
+    for (let i = 0; i < ITERS; i++) {
+      await wake.sum(input);
+    }
+    await wake.device.queue.onSubmittedWorkDone();
+    perCall.push((performance.now() - t0) / ITERS);
+  }
+
+  perCall.sort((a, b) => a - b);
+  const ms = perCall[Math.floor(perCall.length / 2)];
+  const gbps = (n * 4) / (ms * 1e6);
+  console.log(`  2^${log2} (${n}): ${ms.toFixed(3)} ms/reduction, ${gbps.toFixed(5)} GB/s`);
+}
