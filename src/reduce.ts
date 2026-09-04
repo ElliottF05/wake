@@ -79,6 +79,7 @@ export async function reduce<T extends WakeSupportedArray>(
   computePass.dispatchWorkgroups(1);
   computePass.end();
   wake.device.queue.submit([encoder.finish()]);
+  scratch.destroy();
   return output;
 }
 

@@ -93,14 +93,14 @@ for (const { dtype, data } of datasets) {
 }
 
 console.log(`Correctness test results: ${passed} passed, ${failed} failed`);
-console.log(`Beginning performance tests:`)
+console.log(`Beginning performance tests:`);
 
 // 5. performance testing on increasing input sizes.
 const MIN_LOG2 = 16;
 const MAX_LOG2 = 28;
 const WARMUP = 5;
-const ITERS = 100;
-const BATCHES = 5;
+const ITERS = 32;
+const BATCHES = 9;
 
 for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
   const n = 2 ** log2;
@@ -125,6 +125,7 @@ for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
     perCall.push((performance.now() - t0) / ITERS);
   }
 
+  input.destroy();
   perCall.sort((a, b) => a - b);
   const ms = perCall[Math.floor(perCall.length / 2)];
   const gbps = (n * 4) / (ms * 1e6);
