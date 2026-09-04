@@ -58,8 +58,8 @@ export async function reduce<T extends WakeSupportedArray>(
   }
   const pipeline = await cached;
   const p = Math.ceil(Math.sqrt(input.length));
-  const scratch = wake.buffer(new input.view(new ArrayBuffer(p * input.view.BYTES_PER_ELEMENT)));
-  const output = wake.buffer(new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT)));
+  const scratch = wake.empty(p, input.view);
+  const output = wake.empty(1, input.view);
   const bindGroup1 = wake.device.createBindGroup({
     label: label("bindGroup1"),
     layout: pipeline.getBindGroupLayout(0),

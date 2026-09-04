@@ -1,6 +1,7 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 
 import {
+  emptyBuffer,
   fromArray,
   WakeBuffer,
   type WakeSupportedArray,
@@ -64,6 +65,13 @@ export class Wake {
     view: WakeSupportedArrayConstructor<T>,
   ): WakeBuffer<T> {
     return new WakeBuffer(this, raw, view);
+  }
+
+  empty<T extends WakeSupportedArray>(
+    length: number,
+    view: WakeSupportedArrayConstructor<T>,
+  ): WakeBuffer<T> {
+    return emptyBuffer(this, length, view);
   }
 
   sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
