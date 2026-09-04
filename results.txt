@@ -19,3 +19,8 @@ v1: two pass linear scan
 2^26 (67108864): 6.131 ms, 43.78152 GB/s
 2^27 (134217728): 6.738 ms, 79.68399 GB/s
 2^28 (268435456): 13.203 ms, 81.32482 GB/s
+
+TODO:
+- try to reduce 0.23ms overhead
+- defer improving reduce kernel until i can test on 3080
+- work on parallel prefix kernel
