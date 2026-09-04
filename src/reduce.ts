@@ -38,6 +38,7 @@ export async function reduce<T extends WakeSupportedArray>(
   input: WakeBuffer<T>,
   op: ReduceOp,
 ): Promise<WakeBuffer<T>> {
+  // TODO: cache shader module and pipeline?
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
   const module = wake.device.createShaderModule({
