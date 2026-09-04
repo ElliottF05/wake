@@ -127,3 +127,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
   }
   console.log(`Copy kernel bandwidth:\n${copyRows.join("\n")}`);
 }
+
+// wake.empty() cost in isolation
+export async function testEmptyBuffer(wake: Wake): Promise<void> {
+  console.log("Beginning wake.empty() benchmark:");
+  const WARMUP = 5;
+  const ITERS = 32;
+  const BATCHES = 9;
+  const emptyRows: string[] = [];
+  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+    console.log(`measuring empty 2^${log2}...`);
+    const n = 2 ** log2;
+    const allocate = () => {
+      wake.empty(n, Float32Array).destroy();
+    };
+    const ms = await measureMedianMs({
+      warmup: WARMUP,
+      batches: BATCHES,
+      iters: ITERS,
+      run: allocate,
+    });
+    emptyRows.push(`2^${log2} (${n}): ${ms.toFixed(3)} ms`);
+  }
+  console.log(`wake.empty() benchmark:\n${emptyRows.join("\n")}`);
+}
