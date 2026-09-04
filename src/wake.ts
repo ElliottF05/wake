@@ -15,6 +15,7 @@ export interface WakeOptions {
 
 export class Wake {
   readonly device: GPUDevice;
+  private readonly pipelineCache = new Map();
 
   private constructor(device: GPUDevice) {
     this.device = device;
@@ -66,14 +67,14 @@ export class Wake {
   }
 
   sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "sum");
+    return reduce(this, input, "sum", this.pipelineCache);
   }
 
   min<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "min");
+    return reduce(this, input, "min", this.pipelineCache);
   }
 
   max<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "max");
+    return reduce(this, input, "max", this.pipelineCache);
   }
 }
