@@ -102,7 +102,9 @@ const WARMUP = 5;
 const ITERS = 32;
 const BATCHES = 9;
 
+const perfRows: string[] = [];
 for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  console.log(`measuring 2^${log2}...`);
   const n = 2 ** log2;
   const data = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -129,5 +131,7 @@ for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
   perCall.sort((a, b) => a - b);
   const ms = perCall[Math.floor(perCall.length / 2)];
   const gbps = (n * 4) / (ms * 1e6);
-  console.log(`  2^${log2} (${n}): ${ms.toFixed(3)} ms, ${gbps.toFixed(5)} GB/s`);
+  perfRows.push(`2^${log2} (${n}): ${ms.toFixed(3)} ms, ${gbps.toFixed(5)} GB/s`);
 }
+
+console.log(`Performance results:\n${perfRows.join("\n")}`);

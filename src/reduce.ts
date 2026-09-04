@@ -51,7 +51,7 @@ export async function reduce<T extends WakeSupportedArray>(
     layout: "auto",
     compute: { module },
   });
-  const p = Math.ceil(Math.sqrt(input.length))
+  const p = Math.ceil(Math.sqrt(input.length));
   const scratch = wake.buffer(new input.view(new ArrayBuffer(p * input.view.BYTES_PER_ELEMENT)));
   const output = wake.buffer(new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT)));
   const bindGroup1 = wake.device.createBindGroup({
