@@ -37,23 +37,29 @@ export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
   op: ReduceOp,
+  pipelineCache: Map<string, Promise<GPUComputePipeline>>,
 ): Promise<WakeBuffer<T>> {
-  // TODO: cache shader module and pipeline?
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
-  const module = wake.device.createShaderModule({
-    label: label("shader"),
-    code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
-  });
-  const pipeline = await wake.device.createComputePipelineAsync({
-    label: label("pipeline"),
-    layout: "auto",
-    compute: { module },
-  });
+  const key = `${op}:${dtype}:${workgroupSize}`;
+  let cached = pipelineCache.get(key);
+  if (!cached) {
+    const module = wake.device.createShaderModule({
+      label: label("shader"),
+      code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
+    });
+    cached = wake.device.createComputePipelineAsync({
+      label: label("pipeline"),
+      layout: "auto",
+      compute: { module },
+    });
+    pipelineCache.set(key, cached);
+  }
+  const pipeline = await cached;
   const p = Math.ceil(Math.sqrt(input.length));
-  const scratch = wake.buffer(new input.view(new ArrayBuffer(p * input.view.BYTES_PER_ELEMENT)));
-  const output = wake.buffer(new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT)));
+  const scratch = wake.empty(p, input.view);
+  const output = wake.empty(1, input.view);
   const bindGroup1 = wake.device.createBindGroup({
     label: label("bindGroup1"),
     layout: pipeline.getBindGroupLayout(0),

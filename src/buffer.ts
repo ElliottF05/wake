@@ -77,6 +77,19 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
   }
 }
 
+export function emptyBuffer<T extends WakeSupportedArray>(
+  wake: Wake,
+  length: number,
+  view: WakeSupportedArrayConstructor<T>,
+): WakeBuffer<T> {
+  const raw = wake.device.createBuffer({
+    label: "wake:empty",
+    size: length * view.BYTES_PER_ELEMENT,
+    usage: BUFFER_USAGE,
+  });
+  return new WakeBuffer<T>(wake, raw, view, true);
+}
+
 export function fromArray<T extends WakeSupportedArray>(wake: Wake, data: T): WakeBuffer<T> {
   if (
     !(data instanceof Float32Array || data instanceof Uint32Array || data instanceof Int32Array)
