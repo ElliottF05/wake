@@ -97,10 +97,10 @@ console.log(`Beginning performance tests:`)
 
 // 5. performance testing on increasing input sizes.
 const MIN_LOG2 = 16;
-const MAX_LOG2 = 20;
+const MAX_LOG2 = 28;
 const WARMUP = 5;
-const ITERS = 20;
-const BATCHES = 4;
+const ITERS = 100;
+const BATCHES = 5;
 
 for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
   const n = 2 ** log2;

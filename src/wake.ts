@@ -37,7 +37,13 @@ export class Wake {
       throw new Error("no WebGPU adapter available");
     }
     try {
-      const device = await adapter.requestDevice({ label: "wake:device" });
+      const device = await adapter.requestDevice({
+        label: "wake:device",
+        requiredLimits: {
+          maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+          maxBufferSize: adapter.limits.maxBufferSize,
+        },
+      });
       return new Wake(device);
     } catch (cause) {
       throw new Error("failed to acquire a WebGPU device", { cause });

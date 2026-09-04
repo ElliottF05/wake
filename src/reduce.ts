@@ -39,30 +39,43 @@ export async function reduce<T extends WakeSupportedArray>(
   op: ReduceOp,
 ): Promise<WakeBuffer<T>> {
   // TODO: cache shader module and pipeline?
+  const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
   const module = wake.device.createShaderModule({
     label: label("shader"),
-    code: buildReduceShader(dtype, REDUCE_OPS[op]),
+    code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
   });
   const pipeline = await wake.device.createComputePipelineAsync({
     label: label("pipeline"),
     layout: "auto",
     compute: { module },
   });
+  const p = Math.ceil(Math.sqrt(input.length))
+  const scratch = wake.buffer(new input.view(new ArrayBuffer(p * input.view.BYTES_PER_ELEMENT)));
   const output = wake.buffer(new input.view(new ArrayBuffer(input.view.BYTES_PER_ELEMENT)));
-  const bindGroup = wake.device.createBindGroup({
-    label: label("bindGroup"),
+  const bindGroup1 = wake.device.createBindGroup({
+    label: label("bindGroup1"),
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
+      { binding: 1, resource: { buffer: scratch.raw } },
+    ],
+  });
+  const bindGroup2 = wake.device.createBindGroup({
+    label: label("bindGroup2"),
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: scratch.raw } },
       { binding: 1, resource: { buffer: output.raw } },
     ],
   });
   const encoder = wake.device.createCommandEncoder({ label: label("encoder") });
   const computePass = encoder.beginComputePass({ label: label("computePass") });
   computePass.setPipeline(pipeline);
-  computePass.setBindGroup(0, bindGroup);
+  computePass.setBindGroup(0, bindGroup1);
+  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
+  computePass.setBindGroup(0, bindGroup2);
   computePass.dispatchWorkgroups(1);
   computePass.end();
   wake.device.queue.submit([encoder.finish()]);
@@ -80,7 +93,7 @@ function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
 
 // for now, this just does a linear scan on one thread, very inefficient!
 // TODO: make this faster
-function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl): string {
+function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl, workgroupSize: number): string {
   const combine = op.combine;
   const identity = op.identity[dtype];
   return `
@@ -91,14 +104,18 @@ fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
   return ${combine};
 }
 
-@compute @workgroup_size(1)
-fn main() {
-  var n = arrayLength(&input);
-  var out = ${identity};
-  for (var i: u32 = 0; i < n; i++) {
-    out = combine(out, input[i]);
+@compute @workgroup_size(${workgroupSize})
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let n_input = arrayLength(&input);
+  let n_output = arrayLength(&output);
+  if (gid.x >= n_output) {
+    return;
   }
-  output[0] = out;
+  var acc = ${identity};
+  for (var i = gid.x; i < n_input; i += n_output) {
+    acc = combine(acc, input[i]);
+  }
+  output[gid.x] = acc;
 }
 `;
 }
