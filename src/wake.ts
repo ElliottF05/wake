@@ -16,7 +16,7 @@ export interface WakeOptions {
 
 export class Wake {
   readonly device: GPUDevice;
-  private readonly pipelineCache = new Map();
+  private readonly pipelineCache = new Map<string, Promise<GPUComputePipeline>>();
 
   private constructor(device: GPUDevice) {
     this.device = device;
