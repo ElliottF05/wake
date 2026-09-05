@@ -54,8 +54,7 @@ export async function reduce<T extends WakeSupportedArray>(
   return output;
 }
 
-// for now, this just does a linear scan on one thread, very inefficient!
-// TODO: make this faster
+// TODO: make this faster based on data from running on 3080
 function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
   const combine = op.combine;
   const identity = op.identity[dtype];
