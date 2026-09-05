@@ -4,6 +4,7 @@ import {
   type AssociativeOp,
   type AssociativeOpWgsl,
   type WgslDtype,
+  wgslCombineFn,
   wgslDtypeOf,
 } from "./ops";
 import type { Wake } from "./wake";
@@ -19,8 +20,7 @@ export async function reduce<T extends WakeSupportedArray>(
   const key = `reduce:${op}:${dtype}:${workgroupSize}`;
   const pipeline = await wake.getOrCreatePipeline(key, () => ({
     code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
-    shaderLabel: label("shader"),
-    pipelineLabel: label("pipeline"),
+    label: label("kernel"),
   }));
   const p = Math.ceil(Math.sqrt(input.length));
   const scratch = wake.empty(p, input.view);
@@ -56,15 +56,12 @@ export async function reduce<T extends WakeSupportedArray>(
 
 // TODO: make this faster based on data from running on 3080
 function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
-  const combine = op.combine;
   const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;
 
-fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${combine};
-}
+${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(${workgroupSize})
 fn main(@builtin(global_invocation_id) gid: vec3u) {

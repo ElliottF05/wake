@@ -32,6 +32,13 @@ export const ASSOCIATIVE_OPS: Record<AssociativeOp, AssociativeOpWgsl> = {
   },
 };
 
+export function wgslCombineFn(dtype: WgslDtype, op: AssociativeOpWgsl): string {
+  return `
+fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
+  return ${op.combine};
+}`;
+}
+
 export function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
   if (buffer.view === Float32Array) return "f32";
   if (buffer.view === Uint32Array) return "u32";

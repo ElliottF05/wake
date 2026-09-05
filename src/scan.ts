@@ -4,6 +4,7 @@ import {
   type AssociativeOp,
   type AssociativeOpWgsl,
   type WgslDtype,
+  wgslCombineFn,
   wgslDtypeOf,
 } from "./ops";
 import type { Wake } from "./wake";
@@ -17,16 +18,19 @@ export async function scan<T extends WakeSupportedArray>(
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:scan:${what} (op=${op}, dtype=${dtype})`;
-  const pipelineFor = (phase: string, buildShader: typeof buildPhase1Shader) =>
-    wake.getOrCreatePipeline(`scan:${phase}:${op}:${dtype}:${workgroupSize}:${inclusive}`, () => ({
-      code: buildShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize, inclusive),
-      shaderLabel: label(`shader:${phase}`),
-      pipelineLabel: label(`pipeline:${phase}`),
+  const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
+    wake.getOrCreatePipeline(`scan:${phase}:${key}`, () => ({
+      code: buildCode(),
+      label: label(phase),
     }));
   const [phase1Pipeline, phase2Pipeline, phase3Pipeline] = await Promise.all([
-    pipelineFor("phase1", buildPhase1Shader),
-    pipelineFor("phase2", buildPhase2Shader),
-    pipelineFor("phase3", buildPhase3Shader),
+    pipelineFor("phase1", `${op}:${dtype}:${workgroupSize}`, () =>
+      buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
+    ),
+    pipelineFor("phase2", `${op}:${dtype}`, () => buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op])),
+    pipelineFor("phase3", `${op}:${dtype}:${workgroupSize}:${inclusive}`, () =>
+      buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize, inclusive),
+    ),
   ]);
   const n = input.length;
   const p = Math.ceil(Math.sqrt(2 * n));
@@ -73,21 +77,13 @@ export async function scan<T extends WakeSupportedArray>(
 
 // TODO: make these shaders faster based on data from running on 3080
 
-function buildPhase1Shader(
-  dtype: WgslDtype,
-  op: AssociativeOpWgsl,
-  workgroupSize: number,
-  _inclusive: boolean,
-): string {
-  const combine = op.combine;
+function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
   const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> scratch: array<${dtype}>;
 
-fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${combine};
-}
+${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(${workgroupSize})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -108,20 +104,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 }
 
-function buildPhase2Shader(
-  dtype: WgslDtype,
-  op: AssociativeOpWgsl,
-  _workgroupSize: number,
-  _inclusive: boolean,
-): string {
-  const combine = op.combine;
+function buildPhase2Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read_write> scratch: array<${dtype}>;
 
-fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${combine};
-}
+${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -145,18 +133,12 @@ function buildPhase3Shader(
   workgroupSize: number,
   inclusive: boolean,
 ): string {
-  const combine = op.combine;
-  const step = inclusive
-    ? `prev = combine(prev, input[i]);\n    output[i] = prev;`
-    : `output[i] = prev;\n    prev = combine(prev, input[i]);`;
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
 @group(0) @binding(2) var<storage, read_write> output: array<${dtype}>;
 
-fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${combine};
-}
+${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(${workgroupSize})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -171,7 +153,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let end = min(start + block_size, n);
   var prev = scratch[b];
   for (var i = start; i < end; i++) {
-    ${step}
+    let old_prev = prev;
+    prev = combine(prev, input[i]);
+    output[i] = ${inclusive ? "prev" : "old_prev"};
   }
 }
 `;

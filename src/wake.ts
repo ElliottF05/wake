@@ -17,6 +17,11 @@ export interface WakeOptions {
   powerPreference?: GPUPowerPreference;
 }
 
+export interface ShaderSource {
+  code: string;
+  label: string;
+}
+
 export class Wake {
   readonly device: GPUDevice;
   private readonly pipelineCache = new Map<string, Promise<GPUComputePipeline>>();
@@ -92,16 +97,13 @@ export class Wake {
     return scan(this, input, op, inclusive);
   }
 
-  getOrCreatePipeline(
-    key: string,
-    build: () => { code: string; shaderLabel: string; pipelineLabel: string },
-  ): Promise<GPUComputePipeline> {
+  getOrCreatePipeline(key: string, build: () => ShaderSource): Promise<GPUComputePipeline> {
     let cached = this.pipelineCache.get(key);
     if (!cached) {
-      const { code, shaderLabel, pipelineLabel } = build();
-      const module = this.device.createShaderModule({ label: shaderLabel, code });
+      const { code, label } = build();
+      const module = this.device.createShaderModule({ label: `${label} (shader)`, code });
       cached = this.device.createComputePipelineAsync({
-        label: pipelineLabel,
+        label: `${label} (pipeline)`,
         layout: "auto",
         compute: { module },
       });
