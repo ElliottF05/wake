@@ -37,4 +37,5 @@ v2: after caching pipeline (lower sizes are faster, but middle ones are slower?)
 
 TODO:
 - defer improving reduce kernel until i can test on 3080
-- work on parallel prefix kernel
+- greatly improve code quality for scan
+- improve code quality for tests
