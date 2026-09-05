@@ -10,6 +10,7 @@ import {
 } from "./buffer";
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
+import { scan } from "./scan";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -81,6 +82,14 @@ export class Wake {
     op: AssociativeOp,
   ): Promise<WakeBuffer<T>> {
     return reduce(this, input, op);
+  }
+
+  scan<T extends WakeSupportedArray>(
+    input: WakeBuffer<T>,
+    op: AssociativeOp,
+    inclusive: boolean,
+  ): Promise<WakeBuffer<T>> {
+    return scan(this, input, op, inclusive);
   }
 
   getOrCreatePipeline(

@@ -1,4 +1,5 @@
 import type { Wake } from "../src/index";
+import type { WgslDtype } from "../src/ops";
 import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
 
 export async function testCorrectness(wake: Wake): Promise<void> {
@@ -8,7 +9,6 @@ export async function testCorrectness(wake: Wake): Promise<void> {
   function report(name: string, ok: boolean, reason?: string): void {
     if (ok) {
       passed++;
-      console.log(`${name}: passed`);
     } else {
       failed++;
       console.log(`${name}: failed, ${reason}`);
@@ -23,6 +23,28 @@ export async function testCorrectness(wake: Wake): Promise<void> {
     for (let i = 0; i < expected.length; i++) {
       if (actual[i] !== expected[i]) {
         report(name, false, `expected [${Array.from(expected)}], got [${Array.from(actual)}]`);
+        return;
+      }
+    }
+    report(name, true);
+  }
+
+  function checkArrayApprox(
+    name: string,
+    actual: ArrayLike<number>,
+    expected: ArrayLike<number>,
+  ): void {
+    if (actual.length !== expected.length) {
+      report(name, false, `expected length ${expected.length}, got ${actual.length}`);
+      return;
+    }
+    for (let i = 0; i < expected.length; i++) {
+      if (Math.abs(actual[i] - expected[i]) > 1e-6) {
+        report(
+          name,
+          false,
+          `expected [${Array.from(expected)}], got [${Array.from(actual)}] (first mismatch at index ${i})`,
+        );
         return;
       }
     }
@@ -71,24 +93,71 @@ export async function testCorrectness(wake: Wake): Promise<void> {
   }
 
   // 4. test correctness against JS implementation for each (op, dtype)
-  const reductions = {
-    sum: { f: (a: number, b: number) => a + b, identity: 0 },
-    min: { f: (a: number, b: number) => Math.min(a, b), identity: Number.POSITIVE_INFINITY },
-    max: { f: (a: number, b: number) => Math.max(a, b), identity: Number.NEGATIVE_INFINITY },
+  const F32_MAX = new Float32Array(new Uint32Array([0x7f7fffff]).buffer)[0];
+
+  const reductions: Record<
+    "sum" | "min" | "max",
+    { f: (a: number, b: number) => number; identity: Record<WgslDtype, number> }
+  > = {
+    sum: {
+      f: (a, b) => a + b,
+      identity: { f32: 0, u32: 0, i32: 0 },
+    },
+    min: {
+      f: (a, b) => Math.min(a, b),
+      identity: { f32: F32_MAX, u32: 0xffffffff, i32: 2147483647 },
+    },
+    max: {
+      f: (a, b) => Math.max(a, b),
+      identity: { f32: -F32_MAX, u32: 0, i32: -2147483648 },
+    },
   };
 
   const datasets = [
-    { dtype: "f32", data: new Float32Array([3.5, 1.25, 4, 1, 5, 9.5, 2, 6]) },
-    { dtype: "u32", data: new Uint32Array([3, 1, 4, 1, 5, 9, 2, 6]) },
-    { dtype: "i32", data: new Int32Array([3, -1, 4, -1, 5, -9, 2, -6]) },
+    { dtype: "f32" as const, data: new Float32Array([3.5, 1.25, 4, 1, 5, 9.5, 2, 6]) },
+    { dtype: "u32" as const, data: new Uint32Array([3, 1, 4, 1, 5, 9, 2, 6]) },
+    { dtype: "i32" as const, data: new Int32Array([3, -1, 4, -1, 5, -9, 2, -6]) },
   ];
 
   for (const { dtype, data } of datasets) {
     for (const op of ["sum", "min", "max"] as const) {
       const { f, identity } = reductions[op];
-      const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity);
+      const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity[dtype]);
       const result = await (await wake.reduce(wake.buffer(data), op)).read();
-      checkScalar(`correctness (${op}, ${dtype})`, result, expected);
+      checkScalar(`reduce correctness (${op}, ${dtype})`, result, expected);
+    }
+  }
+
+  // 5. test scan correctness against a JS implementation for each (op, dtype, inclusive)
+  function jsScan(
+    data: ArrayLike<number>,
+    f: (a: number, b: number) => number,
+    identity: number,
+    inclusive: boolean,
+  ): number[] {
+    const result: number[] = [];
+    let acc = identity;
+    for (let i = 0; i < data.length; i++) {
+      if (inclusive) {
+        acc = f(acc, data[i]);
+        result.push(acc);
+      } else {
+        result.push(acc);
+        acc = f(acc, data[i]);
+      }
+    }
+    return result;
+  }
+
+  for (const { dtype, data } of datasets) {
+    for (const op of ["sum", "min", "max"] as const) {
+      const { f, identity } = reductions[op];
+      for (const inclusive of [true, false]) {
+        const expected = jsScan(data, f, identity[dtype], inclusive);
+        const result = await (await wake.scan(wake.buffer(data), op, inclusive)).read();
+        const mode = inclusive ? "inclusive" : "exclusive";
+        checkArrayApprox(`scan correctness (${op}, ${dtype}, ${mode})`, result, expected);
+      }
     }
   }
 
