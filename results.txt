@@ -39,3 +39,4 @@ TODO:
 - defer improving reduce kernel until i can test on 3080
 - greatly improve code quality for scan
 - improve code quality for tests
+- make scan use coalesced memory accessing
