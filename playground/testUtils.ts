@@ -1,7 +1,7 @@
 // Shared utuls for tests/benchmarks.
 
 export const MIN_LOG2 = 16;
-export const MAX_LOG2 = 28;
+export const MAX_LOG2 = 24;
 
 export async function measureMedianMs(opts: {
   warmup: number;

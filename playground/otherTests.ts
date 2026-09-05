@@ -4,21 +4,27 @@ import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
 // These tests are auxiliary tests for determining useful information, outside
 // of the scope of testing correctness/performance of WAKE itself.
 
-// JS CPU reduction baseline
-export async function testJsPerformance(): Promise<void> {
-  console.log("Beginning JS CPU baseline:");
-
-  const JS_BATCHES = 5;
-  const JS_ITERS = 3;
-  const jsData = new Float32Array(2 ** MAX_LOG2);
-  for (let i = 0; i < jsData.length; i++) {
-    jsData[i] = Math.random() * 2 - 1;
+function randomFloat32Array(length: number): Float32Array {
+  const data = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    data[i] = Math.random() * 2 - 1;
   }
+  return data;
+}
+
+const JS_BATCHES = 5;
+const JS_ITERS = 3;
+
+// JS CPU reduction (sum) baseline
+export async function testJsReducePerformance(): Promise<void> {
+  console.log("Beginning JS CPU reduce baseline:");
+
+  const jsData = randomFloat32Array(2 ** MAX_LOG2);
 
   let jsSink = 0;
   const jsRows: string[] = [];
   for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
-    console.log(`measuring js 2^${log2}...`);
+    console.log(`measuring js reduce 2^${log2}...`);
     const n = 2 ** log2;
 
     const runOne = () => {
@@ -39,7 +45,43 @@ export async function testJsPerformance(): Promise<void> {
     const gbps = (n * 4) / (ms * 1e6);
     jsRows.push(formatRow(log2, n, ms, gbps));
   }
-  console.log(`JS CPU sum baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
+  console.log(`JS CPU reduce baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
+}
+
+// JS CPU scan (inclusive cumulative sum) baseline
+export async function testJsScanPerformance(): Promise<void> {
+  console.log("Beginning JS CPU scan baseline:");
+
+  const jsData = randomFloat32Array(2 ** MAX_LOG2);
+  const jsOutput = new Float32Array(2 ** MAX_LOG2);
+
+  let jsSink = 0;
+  const jsRows: string[] = [];
+  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+    console.log(`measuring js scan 2^${log2}...`);
+    const n = 2 ** log2;
+
+    const runOne = () => {
+      let acc = 0;
+      for (let i = 0; i < n; i++) {
+        acc += jsData[i];
+        jsOutput[i] = acc;
+      }
+      jsSink += jsOutput[n - 1];
+    };
+
+    const ms = await measureMedianMs({
+      warmup: JS_ITERS,
+      batches: JS_BATCHES,
+      iters: JS_ITERS,
+      run: runOne,
+    });
+
+    // scan reads n elements and writes n elements, unlike reduce's read-only pass
+    const gbps = (2 * n * 4) / (ms * 1e6);
+    jsRows.push(formatRow(log2, n, ms, gbps));
+  }
+  console.log(`JS CPU scan baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
 }
 
 // Copy-kernel bandwidth: a simple dst[i] = src[i] kernel to get an idea of the
