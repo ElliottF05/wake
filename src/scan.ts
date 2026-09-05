@@ -18,7 +18,7 @@ export async function scan<T extends WakeSupportedArray>(
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:scan:${what} (op=${op}, dtype=${dtype})`;
   const pipelineFor = (phase: string, buildShader: typeof buildPhase1Shader) =>
-    wake.getOrCreatePipeline(`scan:${phase}:${op}:${dtype}:${workgroupSize}`, () => ({
+    wake.getOrCreatePipeline(`scan:${phase}:${op}:${dtype}:${workgroupSize}:${inclusive}`, () => ({
       code: buildShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize, inclusive),
       shaderLabel: label(`shader:${phase}`),
       pipelineLabel: label(`pipeline:${phase}`),
@@ -43,13 +43,11 @@ export async function scan<T extends WakeSupportedArray>(
   const bindGroup2 = wake.device.createBindGroup({
     label: label("bindGroup2"),
     layout: phase2Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: scratch.raw } },
-    ],
+    entries: [{ binding: 0, resource: { buffer: scratch.raw } }],
   });
   const bindGroup3 = wake.device.createBindGroup({
     label: label("bindGroup3"),
-    layout: phase2Pipeline.getBindGroupLayout(0),
+    layout: phase3Pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
       { binding: 1, resource: { buffer: scratch.raw } },

@@ -76,7 +76,10 @@ export class Wake {
     return emptyBuffer(this, length, view);
   }
 
-  reduce<T extends WakeSupportedArray>(input: WakeBuffer<T>, op: AssociativeOp): Promise<WakeBuffer<T>> {
+  reduce<T extends WakeSupportedArray>(
+    input: WakeBuffer<T>,
+    op: AssociativeOp,
+  ): Promise<WakeBuffer<T>> {
     return reduce(this, input, op);
   }
 
