@@ -37,26 +37,16 @@ export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
   op: ReduceOp,
-  pipelineCache: Map<string, Promise<GPUComputePipeline>>,
 ): Promise<WakeBuffer<T>> {
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
-  const key = `${op}:${dtype}:${workgroupSize}`;
-  let cached = pipelineCache.get(key);
-  if (!cached) {
-    const module = wake.device.createShaderModule({
-      label: label("shader"),
-      code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
-    });
-    cached = wake.device.createComputePipelineAsync({
-      label: label("pipeline"),
-      layout: "auto",
-      compute: { module },
-    });
-    pipelineCache.set(key, cached);
-  }
-  const pipeline = await cached;
+  const key = `reduce:${op}:${dtype}:${workgroupSize}`;
+  const pipeline = await wake.getOrCreatePipeline(key, () => ({
+    code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
+    shaderLabel: label("shader"),
+    pipelineLabel: label("pipeline"),
+  }));
   const p = Math.ceil(Math.sqrt(input.length));
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(1, input.view);

@@ -75,14 +75,32 @@ export class Wake {
   }
 
   sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "sum", this.pipelineCache);
+    return reduce(this, input, "sum");
   }
 
   min<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "min", this.pipelineCache);
+    return reduce(this, input, "min");
   }
 
   max<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "max", this.pipelineCache);
+    return reduce(this, input, "max");
+  }
+
+  getOrCreatePipeline(
+    key: string,
+    build: () => { code: string; shaderLabel: string; pipelineLabel: string },
+  ): Promise<GPUComputePipeline> {
+    let cached = this.pipelineCache.get(key);
+    if (!cached) {
+      const { code, shaderLabel, pipelineLabel } = build();
+      const module = this.device.createShaderModule({ label: shaderLabel, code });
+      cached = this.device.createComputePipelineAsync({
+        label: pipelineLabel,
+        layout: "auto",
+        compute: { module },
+      });
+      this.pipelineCache.set(key, cached);
+    }
+    return cached;
   }
 }
