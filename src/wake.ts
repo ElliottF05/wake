@@ -11,15 +11,11 @@ import {
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
 import { scan } from "./scan";
+import type { WakeLabel } from "./wakeLabel";
 
 export interface WakeOptions {
   device?: GPUDevice;
   powerPreference?: GPUPowerPreference;
-}
-
-export interface ShaderSource {
-  code: string;
-  label: string;
 }
 
 export class Wake {
@@ -97,13 +93,22 @@ export class Wake {
     return scan(this, input, op, inclusive);
   }
 
-  getOrCreatePipeline(key: string, build: () => ShaderSource): Promise<GPUComputePipeline> {
+  getOrCreatePipeline(
+    key: string,
+    build: () => {
+      code: string;
+      label: WakeLabel;
+    },
+  ): Promise<GPUComputePipeline> {
     let cached = this.pipelineCache.get(key);
     if (!cached) {
       const { code, label } = build();
-      const module = this.device.createShaderModule({ label: `${label} (shader)`, code });
+      const module = this.device.createShaderModule({
+        label: label.with("resource", "shader").toString(),
+        code,
+      });
       cached = this.device.createComputePipelineAsync({
-        label: `${label} (pipeline)`,
+        label: label.with("resource", "pipeline").toString(),
         layout: "auto",
         compute: { module },
       });

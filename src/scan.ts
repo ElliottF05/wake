@@ -8,6 +8,7 @@ import {
   wgslDtypeOf,
 } from "./ops";
 import type { Wake } from "./wake";
+import { WakeLabel } from "./wakeLabel";
 
 export async function scan<T extends WakeSupportedArray>(
   wake: Wake,
@@ -17,11 +18,11 @@ export async function scan<T extends WakeSupportedArray>(
 ): Promise<WakeBuffer<T>> {
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
-  const label = (what: string) => `wake:scan:${what} (op=${op}, dtype=${dtype})`;
+  const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
     wake.getOrCreatePipeline(`scan:${phase}:${key}`, () => ({
       code: buildCode(),
-      label: label(phase),
+      label: label.with("phase", phase),
     }));
   const [phase1Pipeline, phase2Pipeline, phase3Pipeline] = await Promise.all([
     pipelineFor("phase1", `${op}:${dtype}:${workgroupSize}`, () =>
@@ -37,7 +38,7 @@ export async function scan<T extends WakeSupportedArray>(
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(n, input.view);
   const bindGroup1 = wake.device.createBindGroup({
-    label: label("bindGroup1"),
+    label: label.with("phase", "phase1").with("resource", "bindGroup").toString(),
     layout: phase1Pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
@@ -45,12 +46,12 @@ export async function scan<T extends WakeSupportedArray>(
     ],
   });
   const bindGroup2 = wake.device.createBindGroup({
-    label: label("bindGroup2"),
+    label: label.with("phase", "phase2").with("resource", "bindGroup").toString(),
     layout: phase2Pipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: scratch.raw } }],
   });
   const bindGroup3 = wake.device.createBindGroup({
-    label: label("bindGroup3"),
+    label: label.with("phase", "phase3").with("resource", "bindGroup").toString(),
     layout: phase3Pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
@@ -58,8 +59,12 @@ export async function scan<T extends WakeSupportedArray>(
       { binding: 2, resource: { buffer: output.raw } },
     ],
   });
-  const encoder = wake.device.createCommandEncoder({ label: label("encoder") });
-  const computePass = encoder.beginComputePass({ label: label("computePass") });
+  const encoder = wake.device.createCommandEncoder({
+    label: label.with("resource", "encoder").toString(),
+  });
+  const computePass = encoder.beginComputePass({
+    label: label.with("resource", "computePass").toString(),
+  });
   computePass.setPipeline(phase1Pipeline);
   computePass.setBindGroup(0, bindGroup1);
   computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));

@@ -8,6 +8,7 @@ import {
   wgslDtypeOf,
 } from "./ops";
 import type { Wake } from "./wake";
+import { WakeLabel } from "./wakeLabel";
 
 export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
@@ -16,17 +17,17 @@ export async function reduce<T extends WakeSupportedArray>(
 ): Promise<WakeBuffer<T>> {
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
-  const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
+  const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
   const key = `reduce:${op}:${dtype}:${workgroupSize}`;
   const pipeline = await wake.getOrCreatePipeline(key, () => ({
     code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
-    label: label("kernel"),
+    label: label,
   }));
   const p = Math.ceil(Math.sqrt(input.length));
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(1, input.view);
   const bindGroup1 = wake.device.createBindGroup({
-    label: label("bindGroup1"),
+    label: label.with("resource", "bindGroup1").toString(),
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
@@ -34,15 +35,19 @@ export async function reduce<T extends WakeSupportedArray>(
     ],
   });
   const bindGroup2 = wake.device.createBindGroup({
-    label: label("bindGroup2"),
+    label: label.with("resource", "bindGroup2").toString(),
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: scratch.raw } },
       { binding: 1, resource: { buffer: output.raw } },
     ],
   });
-  const encoder = wake.device.createCommandEncoder({ label: label("encoder") });
-  const computePass = encoder.beginComputePass({ label: label("computePass") });
+  const encoder = wake.device.createCommandEncoder({
+    label: label.with("resource", "encoder").toString(),
+  });
+  const computePass = encoder.beginComputePass({
+    label: label.with("resource", "computePass").toString(),
+  });
   computePass.setPipeline(pipeline);
   computePass.setBindGroup(0, bindGroup1);
   computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
