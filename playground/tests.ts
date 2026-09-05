@@ -87,7 +87,7 @@ export async function testCorrectness(wake: Wake): Promise<void> {
     for (const op of ["sum", "min", "max"] as const) {
       const { f, identity } = reductions[op];
       const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity);
-      const result = await (await wake[op](wake.buffer(data))).read();
+      const result = await (await wake.reduce(wake.buffer(data), op)).read();
       checkScalar(`correctness (${op}, ${dtype})`, result, expected);
     }
   }
@@ -115,7 +115,7 @@ export async function testPerformance(wake: Wake): Promise<void> {
       warmup: WARMUP,
       batches: BATCHES,
       iters: ITERS,
-      run: () => wake.sum(input),
+      run: () => wake.reduce(input, "sum"),
       drain: () => wake.device.queue.onSubmittedWorkDone(),
     });
     input.destroy();

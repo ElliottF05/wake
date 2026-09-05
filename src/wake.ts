@@ -1,4 +1,5 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
+// TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import {
   emptyBuffer,
@@ -7,6 +8,7 @@ import {
   type WakeSupportedArray,
   type WakeSupportedArrayConstructor,
 } from "./buffer";
+import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
 
 export interface WakeOptions {
@@ -74,16 +76,8 @@ export class Wake {
     return emptyBuffer(this, length, view);
   }
 
-  sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "sum");
-  }
-
-  min<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "min");
-  }
-
-  max<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "max");
+  reduce<T extends WakeSupportedArray>(input: WakeBuffer<T>, op: AssociativeOp): Promise<WakeBuffer<T>> {
+    return reduce(this, input, op);
   }
 
   getOrCreatePipeline(
