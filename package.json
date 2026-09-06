@@ -6,13 +6,14 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "vite playground",
-    "build": "vite build playground",
+    "dev": "vite",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
     "check": "biome check ."
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@webgpu/types": "^0.1.72",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"

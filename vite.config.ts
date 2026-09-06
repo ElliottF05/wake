@@ -1,3 +1,11 @@
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import { defineConfig } from "vite";
 
-export default defineConfig({});
+export default defineConfig({
+  root: "playground",
+  plugins: [basicSsl()],
+  server: {
+    https: true,
+    host: true,
+  },
+});
