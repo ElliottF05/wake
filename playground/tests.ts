@@ -161,6 +161,35 @@ export async function testCorrectness(wake: Wake): Promise<void> {
     }
   }
 
+  // 6. radix sort correctness (u32 only for now)
+  for (const n of [0, 1, 2, 255, 256, 257, 4096, 65537, 300_000]) {
+    const name = `radixSort correctness (n=${n})`;
+    try {
+      const data = new Uint32Array(n);
+      for (let i = 0; i < n; i++) {
+        data[i] = Math.floor(Math.random() * 2 ** 32);
+      }
+      const expected = data.slice().sort();
+      const buf = wake.buffer(data);
+      const actual = await (await wake.radixSort(buf)).read();
+      const firstMismatch = Array.from(expected).findIndex((x, i) => x !== actual[i]);
+      if (actual.length !== expected.length) {
+        report(name, false, `length ${actual.length}, expected ${expected.length}`);
+      } else if (firstMismatch !== -1) {
+        report(
+          name,
+          false,
+          `index ${firstMismatch}: got ${actual[firstMismatch]}, expected ${expected[firstMismatch]}`,
+        );
+      } else {
+        report(name, true);
+      }
+      buf.destroy();
+    } catch (e) {
+      report(name, false, `threw: ${e}`);
+    }
+  }
+
   console.log(`Correctness test results: ${passed} passed, ${failed} failed`);
 }
 

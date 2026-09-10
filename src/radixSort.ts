@@ -16,6 +16,9 @@ export async function radixSort<T extends WakeSupportedArray>(
   wake: Wake,
   keys: WakeBuffer<T>,
 ): Promise<WakeBuffer<T>> {
+  if (keys.length === 0) {
+    return keys;
+  }
   const dtype = wgslDtypeOf(keys);
   if (dtype !== "u32") {
     throw Error("only u32 is supported by radixSort for now"); // TODO: fix this
