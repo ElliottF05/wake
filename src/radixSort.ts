@@ -38,17 +38,6 @@ export async function radixSort<T extends WakeSupportedArray>(
       code: buildCode(),
       label: label.with("phase", phase),
     }));
-  // TODO: this is weird syntax
-  const passPipelines = await Promise.all(
-    Array.from({ length: NUM_PASSES }, (_, pass) => {
-      const shift = pass * BITS_PER_PASS;
-      return Promise.all([
-        pipelineFor(`count${pass}`, () => buildCountShader(dtype, shift)),
-        pipelineFor(`reorder${pass}`, () => buildReorderShader(dtype, shift)),
-      ]);
-    }),
-  );
-
   const n = keys.length;
   const numWorkgroups = Math.min(Math.ceil(n / WORKGROUP_SIZE), MAX_NUM_WORKGROUPS);
   const histogram = wake.empty(numWorkgroups * RADIX, Uint32Array);
@@ -56,7 +45,11 @@ export async function radixSort<T extends WakeSupportedArray>(
   let src = keys.raw;
   let dst = scratch.raw;
   for (let pass = 0; pass < NUM_PASSES; pass++) {
-    const [countPipeline, reorderPipeline] = passPipelines[pass];
+    const shift = pass * BITS_PER_PASS;
+    const countPipeline = await pipelineFor(`count${pass}`, () => buildCountShader(dtype, shift));
+    const reorderPipeline = await pipelineFor(`reorder${pass}`, () =>
+      buildReorderShader(dtype, shift),
+    );
     const passLabel = label.with("pass", `${pass}`);
 
     // Phase 1: Count
