@@ -25,15 +25,15 @@ export async function scan<T extends WakeSupportedArray>(
       code: buildCode(),
       label: label.with("phase", phase),
     }));
-  const [phase1Pipeline, phase2Pipeline, phase3Pipeline] = await Promise.all([
-    pipelineFor("phase1", `${op}:${dtype}`, () =>
-      buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op]),
-    ),
-    pipelineFor("phase2", `${op}:${dtype}`, () => buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op])),
-    pipelineFor("phase3", `${op}:${dtype}:${inclusive}`, () =>
-      buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], inclusive),
-    ),
-  ]);
+  const phase1Pipeline = await pipelineFor("phase1", `${op}:${dtype}`, () =>
+    buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op]),
+  );
+  const phase2Pipeline = await pipelineFor("phase2", `${op}:${dtype}`, () =>
+    buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op]),
+  );
+  const phase3Pipeline = await pipelineFor("phase3", `${op}:${dtype}:${inclusive}`, () =>
+    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], inclusive),
+  );
   const n = input.length;
   const p = Math.ceil(Math.sqrt(2 * n));
   const numWorkgroups = Math.ceil(p / WORKGROUP_SIZE);
