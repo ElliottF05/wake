@@ -9,9 +9,12 @@ import {
   type WakeSupportedArrayConstructor,
 } from "./buffer";
 import type { AssociativeOp } from "./ops";
+import { radixSort } from "./radixSort";
 import { reduce } from "./reduce";
 import { scan } from "./scan";
 import type { WakeLabel } from "./wakeLabel";
+
+export const MAX_NUM_WORKGROUPS = 1024; // TODO: tune this, and in the future potentially have some runtime measurement of what is best
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -91,6 +94,10 @@ export class Wake {
     inclusive: boolean,
   ): Promise<WakeBuffer<T>> {
     return scan(this, input, op, inclusive);
+  }
+
+  radixSort<T extends WakeSupportedArray>(keys: WakeBuffer<T>): Promise<WakeBuffer<T>> {
+    return radixSort(this, keys);
   }
 
   getOrCreatePipeline(

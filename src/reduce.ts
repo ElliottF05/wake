@@ -10,20 +10,23 @@ import {
 import type { Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
+const WORKGROUP_SIZE = 256;
+
 export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
   op: AssociativeOp,
 ): Promise<WakeBuffer<T>> {
-  const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
-  const key = `reduce:${op}:${dtype}:${workgroupSize}`;
+  const key = `reduce:${op}:${dtype}`;
   const pipeline = await wake.getOrCreatePipeline(key, () => ({
-    code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
+    code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op]),
     label: label,
   }));
-  const p = Math.ceil(Math.sqrt(input.length));
+  const n = input.length;
+  const p = Math.ceil(Math.sqrt(n));
+  const numWorkgroups = Math.ceil(p / WORKGROUP_SIZE);
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(1, input.view);
   const bindGroup1 = wake.device.createBindGroup({
@@ -50,7 +53,7 @@ export async function reduce<T extends WakeSupportedArray>(
   });
   computePass.setPipeline(pipeline);
   computePass.setBindGroup(0, bindGroup1);
-  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
+  computePass.dispatchWorkgroups(numWorkgroups);
   computePass.setBindGroup(0, bindGroup2);
   computePass.dispatchWorkgroups(1);
   computePass.end();
@@ -60,23 +63,24 @@ export async function reduce<T extends WakeSupportedArray>(
 }
 
 // TODO: make this faster based on data from running on 3080
-function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
+function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   const identity = op.identity[dtype];
+  // TODO: extract consts out to the top, similar to how radixSort.ts does?
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;
 
 ${wgslCombineFn(dtype, op)}
 
-@compute @workgroup_size(${workgroupSize})
+@compute @workgroup_size(${WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let n_input = arrayLength(&input);
-  let n_output = arrayLength(&output);
-  if (gid.x >= n_output) {
+  let n = arrayLength(&input);
+  let p = arrayLength(&output);
+  if (gid.x >= p) {
     return;
   }
   var acc = ${identity};
-  for (var i = gid.x; i < n_input; i += n_output) {
+  for (var i = gid.x; i < n; i += p) {
     acc = combine(acc, input[i]);
   }
   output[gid.x] = acc;
