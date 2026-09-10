@@ -10,13 +10,14 @@ import {
 import type { Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
+const WORKGROUP_SIZE = 256;
+
 export async function scan<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
   op: AssociativeOp,
   inclusive: boolean,
 ): Promise<WakeBuffer<T>> {
-  const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
@@ -25,16 +26,17 @@ export async function scan<T extends WakeSupportedArray>(
       label: label.with("phase", phase),
     }));
   const [phase1Pipeline, phase2Pipeline, phase3Pipeline] = await Promise.all([
-    pipelineFor("phase1", `${op}:${dtype}:${workgroupSize}`, () =>
-      buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
+    pipelineFor("phase1", `${op}:${dtype}`, () =>
+      buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op]),
     ),
     pipelineFor("phase2", `${op}:${dtype}`, () => buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op])),
-    pipelineFor("phase3", `${op}:${dtype}:${workgroupSize}:${inclusive}`, () =>
-      buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize, inclusive),
+    pipelineFor("phase3", `${op}:${dtype}:${inclusive}`, () =>
+      buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], inclusive),
     ),
   ]);
   const n = input.length;
   const p = Math.ceil(Math.sqrt(2 * n));
+  const numWorkgroups = Math.ceil(p / WORKGROUP_SIZE);
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(n, input.view);
   const bindGroup1 = wake.device.createBindGroup({
@@ -67,13 +69,13 @@ export async function scan<T extends WakeSupportedArray>(
   });
   computePass.setPipeline(phase1Pipeline);
   computePass.setBindGroup(0, bindGroup1);
-  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
+  computePass.dispatchWorkgroups(numWorkgroups);
   computePass.setPipeline(phase2Pipeline);
   computePass.setBindGroup(0, bindGroup2);
   computePass.dispatchWorkgroups(1);
   computePass.setPipeline(phase3Pipeline);
   computePass.setBindGroup(0, bindGroup3);
-  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
+  computePass.dispatchWorkgroups(numWorkgroups);
   computePass.end();
   wake.device.queue.submit([encoder.finish()]);
   scratch.destroy();
@@ -82,7 +84,7 @@ export async function scan<T extends WakeSupportedArray>(
 
 // TODO: make these shaders faster based on data from running on 3080
 
-function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
+function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
@@ -90,7 +92,7 @@ function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSiz
 
 ${wgslCombineFn(dtype, op)}
 
-@compute @workgroup_size(${workgroupSize})
+@compute @workgroup_size(${WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   let n = arrayLength(&input);
   let p = arrayLength(&scratch);
@@ -132,12 +134,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 }
 
-function buildPhase3Shader(
-  dtype: WgslDtype,
-  op: AssociativeOpWgsl,
-  workgroupSize: number,
-  inclusive: boolean,
-): string {
+function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl, inclusive: boolean): string {
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
@@ -145,7 +142,7 @@ function buildPhase3Shader(
 
 ${wgslCombineFn(dtype, op)}
 
-@compute @workgroup_size(${workgroupSize})
+@compute @workgroup_size(${WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
   let n = arrayLength(&input);
   let p = arrayLength(&scratch);

@@ -1,4 +1,4 @@
-// Shared utuls for tests/benchmarks.
+// Shared utils for tests/benchmarks.
 
 export const MIN_LOG2 = 16;
 export const MAX_LOG2 = 26;
