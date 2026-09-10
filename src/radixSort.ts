@@ -1,65 +1,40 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
-import {
-  ASSOCIATIVE_OPS,
-  type AssociativeOp,
-  type AssociativeOpWgsl,
-  type WgslDtype,
-  wgslCombineFn,
-  wgslDtypeOf,
-} from "./ops";
-import type { Wake } from "./wake";
+import { wgslDtypeOf } from "./ops";
+import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
-export async function scan<T extends WakeSupportedArray>(
+// These 3 are intentionally interdependent, don't change them without careful 
+// consideration.
+const WORKGROUP_SIZE = 256;
+const BITS_PER_PASS = 8; // 2^8 = 256
+const RADIX = 256;
+
+// TODO: add optional `values` param?
+export async function radixSort<T extends WakeSupportedArray>(
   wake: Wake,
-  input: WakeBuffer<T>,
-  op: AssociativeOp,
-  inclusive: boolean,
+  keys: WakeBuffer<T>,
 ): Promise<WakeBuffer<T>> {
-  const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
-  const dtype = wgslDtypeOf(input);
+  const dtype = wgslDtypeOf(keys);
   if (dtype !== "u32") {
-    throw Error("only u32 is supported for radix sort for now"); // TODO: fix this
+    throw Error("only u32 is supported by radixSort for now"); // TODO: fix this
   }
-  const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
-  const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
-    wake.getOrCreatePipeline(`scan:${phase}:${key}`, () => ({
+  const label = new WakeLabel().with("primitive", "radixSort").with("dtype", dtype);
+  const pipelineFor = (phase: string, buildCode: () => string) =>
+    wake.getOrCreatePipeline(`radixSort:${phase}`, () => ({
       code: buildCode(),
       label: label.with("phase", phase),
     }));
-  const [phase1Pipeline, phase2Pipeline, phase3Pipeline] = await Promise.all([
-    pipelineFor("phase1", `${op}:${dtype}:${workgroupSize}`, () =>
-      buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
-    ),
-    pipelineFor("phase2", `${op}:${dtype}`, () => buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op])),
-    pipelineFor("phase3", `${op}:${dtype}:${workgroupSize}:${inclusive}`, () =>
-      buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], workgroupSize, inclusive),
-    ),
-  ]);
-  const n = input.length;
-  const p = Math.ceil(Math.sqrt(2 * n));
-  const scratch = wake.empty(p, input.view);
-  const output = wake.empty(n, input.view);
+  // TODO: add more here
+  const [count1Pipeline] = await Promise.all([pipelineFor("count1", () => buildCountShader(0))]);
+  const n = keys.length;
+  const numWorkgroups = Math.min(Math.ceil(n / WORKGROUP_SIZE), MAX_NUM_WORKGROUPS);
+  const histogram = wake.empty(numWorkgroups * WORKGROUP_SIZE, Uint32Array);
   const bindGroup1 = wake.device.createBindGroup({
-    label: label.with("phase", "phase1").with("resource", "bindGroup").toString(),
-    layout: phase1Pipeline.getBindGroupLayout(0),
+    label: label.with("phase", "count1").with("resource", "bindGroup").toString(),
+    layout: count1Pipeline.getBindGroupLayout(0),
     entries: [
-      { binding: 0, resource: { buffer: input.raw } },
-      { binding: 1, resource: { buffer: scratch.raw } },
-    ],
-  });
-  const bindGroup2 = wake.device.createBindGroup({
-    label: label.with("phase", "phase2").with("resource", "bindGroup").toString(),
-    layout: phase2Pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: scratch.raw } }],
-  });
-  const bindGroup3 = wake.device.createBindGroup({
-    label: label.with("phase", "phase3").with("resource", "bindGroup").toString(),
-    layout: phase3Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: input.raw } },
-      { binding: 1, resource: { buffer: scratch.raw } },
-      { binding: 2, resource: { buffer: output.raw } },
+      { binding: 0, resource: { buffer: keys.raw } },
+      { binding: 1, resource: { buffer: histogram.raw } },
     ],
   });
   const encoder = wake.device.createCommandEncoder({
@@ -68,103 +43,48 @@ export async function scan<T extends WakeSupportedArray>(
   const computePass = encoder.beginComputePass({
     label: label.with("resource", "computePass").toString(),
   });
-  computePass.setPipeline(phase1Pipeline);
+  computePass.setPipeline(count1Pipeline);
   computePass.setBindGroup(0, bindGroup1);
-  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
-  computePass.setPipeline(phase2Pipeline);
-  computePass.setBindGroup(0, bindGroup2);
-  computePass.dispatchWorkgroups(1);
-  computePass.setPipeline(phase3Pipeline);
-  computePass.setBindGroup(0, bindGroup3);
-  computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
+  computePass.dispatchWorkgroups(numWorkgroups);
   computePass.end();
   wake.device.queue.submit([encoder.finish()]);
-  scratch.destroy();
-  return output;
+  return keys;
 }
 
-// TODO: make these shaders faster based on data from running on 3080
-
-function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
-  const identity = op.identity[dtype];
+function buildCountShader(shift: number): string {
   return `
-@group(0) @binding(0) var<storage, read> input: array<${dtype}>;
-@group(0) @binding(1) var<storage, read_write> scratch: array<${dtype}>;
+const RADIX = ${RADIX}u;
+const MASK = ${RADIX - 1}u;
+const SHIFT = ${shift};
 
-${wgslCombineFn(dtype, op)}
+@group(0) @binding(0) var<storage, read> keys: array<u32>;
+@group(0) @binding(1) var<storage, read_write> histogram: array<u32>;
 
-@compute @workgroup_size(${workgroupSize})
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let n = arrayLength(&input);
-  let p = arrayLength(&scratch);
-  if (gid.x >= p) {
-    return;
+var<workgroup> local_hist: array<atomic<u32>, RADIX>;
+
+@compute @workgroup_size(RADIX)
+fn main(@builtin(workgroup_id) wid: vec3u,
+        @builtin(local_invocation_id) lid: vec3u) {
+  let m = wid.x; // index of current workgroup
+  let n = arrayLength(&keys);
+  let p = arrayLength(&histogram) / RADIX;
+
+  // 1. zero the shared histogram
+  atomicStore(&local_hist[lid.x], 0u);
+  workgroupBarrier();
+
+  // 2. coalesced grid-stride sweep of this section
+  let section_size = (n + p - 1u) / p;
+  let start = m * section_size;
+  let end = min(start + section_size, n);
+  for (var i = start + lid.x; i < end; i += ${WORKGROUP_SIZE}) {
+    let d = (keys[i] >> SHIFT) & MASK;
+    atomicAdd(&local_hist[d], 1u);
   }
-  let block_size = (n + p - 1u) / p;
-  let start = gid.x * block_size;
-  let end = min(start + block_size, n);
-  var acc = ${identity};
-  for (var i = start; i < end; i++) {
-    acc = combine(acc, input[i]);
-  }
-  scratch[gid.x] = acc;
-}
-`;
-}
+  workgroupBarrier();
 
-function buildPhase2Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
-  const identity = op.identity[dtype];
-  return `
-@group(0) @binding(0) var<storage, read_write> scratch: array<${dtype}>;
-
-${wgslCombineFn(dtype, op)}
-
-@compute @workgroup_size(1)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let p = arrayLength(&scratch);
-  if (gid.x != 0) {
-    return;
-  }
-  var prev = ${identity};
-  for (var i = 0u; i < p; i++) {
-    let x = scratch[i];
-    scratch[i] = prev;
-    prev = combine(prev, x);
-  }
-}
-`;
-}
-
-function buildPhase3Shader(
-  dtype: WgslDtype,
-  op: AssociativeOpWgsl,
-  workgroupSize: number,
-  inclusive: boolean,
-): string {
-  return `
-@group(0) @binding(0) var<storage, read> input: array<${dtype}>;
-@group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
-@group(0) @binding(2) var<storage, read_write> output: array<${dtype}>;
-
-${wgslCombineFn(dtype, op)}
-
-@compute @workgroup_size(${workgroupSize})
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let n = arrayLength(&input);
-  let p = arrayLength(&scratch);
-  let b = gid.x;
-  if (b >= p) {
-    return;
-  }
-  let block_size = (n + p - 1u) / p;
-  let start = b * block_size;
-  let end = min(start + block_size, n);
-  var prev = scratch[b];
-  for (var i = start; i < end; i++) {
-    let old_prev = prev;
-    prev = combine(prev, input[i]);
-    output[i] = ${inclusive ? "prev" : "old_prev"};
-  }
+  // 3. write this section's column into the global table
+  histogram[lid.x * p + m] = atomicLoad(&local_hist[lid.x]);
 }
 `;
 }
