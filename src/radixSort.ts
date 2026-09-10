@@ -9,7 +9,7 @@ import { WakeLabel } from "./wakeLabel";
 const BITS_PER_PASS = 8;
 const RADIX = 1 << BITS_PER_PASS; // 256
 const WORKGROUP_SIZE = RADIX; // 256
-// NUM_PASSES = 32 / BITS_PER_PASS (4) — add back with the per-pass loop
+const NUM_PASSES = 32 / BITS_PER_PASS; // 4
 
 // TODO: add optional `values` param?
 export async function radixSort<T extends WakeSupportedArray>(
@@ -26,69 +26,79 @@ export async function radixSort<T extends WakeSupportedArray>(
       code: buildCode(),
       label: label.with("phase", phase),
     }));
-  // TODO: loop this over all NUM_PASSES passes (count/scan/reorder per pass)
-  const [count1Pipeline, reorder1Pipeline] = await Promise.all([
-    pipelineFor("count1", () => buildCountShader(0)),
-    pipelineFor("reorder1", () => buildReorderShader(0)),
-  ]);
+  // TODO: this is weird syntax
+  const passPipelines = await Promise.all(
+    Array.from({ length: NUM_PASSES }, (_, pass) => {
+      const shift = pass * BITS_PER_PASS;
+      return Promise.all([
+        pipelineFor(`count${pass}`, () => buildCountShader(shift)),
+        pipelineFor(`reorder${pass}`, () => buildReorderShader(shift)),
+      ]);
+    }),
+  );
+
   const n = keys.length;
   const numWorkgroups = Math.min(Math.ceil(n / WORKGROUP_SIZE), MAX_NUM_WORKGROUPS);
   const histogram = wake.empty(numWorkgroups * RADIX, Uint32Array);
-  const bindGroup1 = wake.device.createBindGroup({
-    label: label.with("phase", "count1").with("resource", "bindGroup").toString(),
-    layout: count1Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: keys.raw } },
-      { binding: 1, resource: { buffer: histogram.raw } },
-    ],
-  });
-  const encoder = wake.device.createCommandEncoder({
-    label: label.with("resource", "encoder").toString(),
-  });
-  const computePass = encoder.beginComputePass({
-    label: label.with("resource", "computePass").toString(),
-  });
+  const scratch = wake.empty(n, Uint32Array);
+  let src = keys.raw;
+  let dst = scratch.raw;
+  for (let pass = 0; pass < NUM_PASSES; pass++) {
+    const [countPipeline, reorderPipeline] = passPipelines[pass];
+    const passLabel = label.with("pass", `${pass}`);
 
-  // Phase 1: Count
-  computePass.setPipeline(count1Pipeline);
-  computePass.setBindGroup(0, bindGroup1);
-  computePass.dispatchWorkgroups(numWorkgroups);
-  computePass.end();
-  wake.device.queue.submit([encoder.finish()]);
+    // Phase 1: Count
+    const countBindGroup = wake.device.createBindGroup({
+      label: passLabel.with("phase", "count").with("resource", "bindGroup").toString(),
+      layout: countPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: src } },
+        { binding: 1, resource: { buffer: histogram.raw } },
+      ],
+    });
+    const countEncoder = wake.device.createCommandEncoder({
+      label: passLabel.with("phase", "count").with("resource", "encoder").toString(),
+    });
+    const countPass = countEncoder.beginComputePass({
+      label: passLabel.with("phase", "count").with("resource", "computePass").toString(),
+    });
+    countPass.setPipeline(countPipeline);
+    countPass.setBindGroup(0, countBindGroup);
+    countPass.dispatchWorkgroups(numWorkgroups);
+    countPass.end();
+    wake.device.queue.submit([countEncoder.finish()]);
 
-  // Phase 2: Scan (prefix sum)
-  const offsets = await scan(wake, histogram, "sum", false);
+    // Phase 2: Scan (prefix sum)
+    const offsets = await scan(wake, histogram, "sum", false);
+
+    // Phase 3: Reorder
+    const reorderBindGroup = wake.device.createBindGroup({
+      label: passLabel.with("phase", "reorder").with("resource", "bindGroup").toString(),
+      layout: reorderPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: src } },
+        { binding: 1, resource: { buffer: offsets.raw } },
+        { binding: 2, resource: { buffer: dst } },
+      ],
+    });
+    const reorderEncoder = wake.device.createCommandEncoder({
+      label: passLabel.with("phase", "reorder").with("resource", "encoder").toString(),
+    });
+    const reorderPass = reorderEncoder.beginComputePass({
+      label: passLabel.with("phase", "reorder").with("resource", "computePass").toString(),
+    });
+    reorderPass.setPipeline(reorderPipeline);
+    reorderPass.setBindGroup(0, reorderBindGroup);
+    reorderPass.dispatchWorkgroups(numWorkgroups);
+    reorderPass.end();
+    wake.device.queue.submit([reorderEncoder.finish()]);
+
+    offsets.destroy();
+    [src, dst] = [dst, src];
+  }
+
   histogram.destroy();
-
-  // Phase 3: Reorder
-  const sorted = wake.empty(n, Uint32Array);
-  const reorderBindGroup = wake.device.createBindGroup({
-    label: label.with("phase", "reorder1").with("resource", "bindGroup").toString(),
-    layout: reorder1Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: keys.raw } },
-      { binding: 1, resource: { buffer: offsets.raw } },
-      { binding: 2, resource: { buffer: sorted.raw } },
-    ],
-  });
-  const reorderEncoder = wake.device.createCommandEncoder({
-    label: label.with("phase", "reorder1").with("resource", "encoder").toString(),
-  });
-  const reorderPass = reorderEncoder.beginComputePass({
-    label: label.with("phase", "reorder1").with("resource", "computePass").toString(),
-  });
-  reorderPass.setPipeline(reorder1Pipeline);
-  reorderPass.setBindGroup(0, reorderBindGroup);
-  reorderPass.dispatchWorkgroups(numWorkgroups);
-  reorderPass.end();
-  // TEMP: one pass lands the result in `sorted`; copy back so `keys` holds it. Once all
-  // NUM_PASSES passes ping-pong keys <-> sorted, the even count leaves the result in
-  // `keys` and this copy goes away.
-  reorderEncoder.copyBufferToBuffer(sorted.raw, 0, keys.raw, 0, sorted.raw.size);
-  wake.device.queue.submit([reorderEncoder.finish()]);
-
-  sorted.destroy();
-  offsets.destroy();
+  scratch.destroy();
   return keys;
 }
 
