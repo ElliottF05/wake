@@ -3,11 +3,12 @@ import { wgslDtypeOf } from "./ops";
 import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
-// These 3 are intentionally interdependent, don't change them without careful 
+// These are all intentionally interdependent, don't change them without careful
 // consideration.
-const WORKGROUP_SIZE = 256;
-const BITS_PER_PASS = 8; // 2^8 = 256
-const RADIX = 256;
+const BITS_PER_PASS = 8;
+const RADIX = 1 << BITS_PER_PASS; // 256
+const WORKGROUP_SIZE = RADIX; // 256
+const NUM_PASSES = 32 / BITS_PER_PASS; // 4
 
 // TODO: add optional `values` param?
 export async function radixSort<T extends WakeSupportedArray>(
@@ -28,7 +29,7 @@ export async function radixSort<T extends WakeSupportedArray>(
   const [count1Pipeline] = await Promise.all([pipelineFor("count1", () => buildCountShader(0))]);
   const n = keys.length;
   const numWorkgroups = Math.min(Math.ceil(n / WORKGROUP_SIZE), MAX_NUM_WORKGROUPS);
-  const histogram = wake.empty(numWorkgroups * WORKGROUP_SIZE, Uint32Array);
+  const histogram = wake.empty(numWorkgroups * RADIX, Uint32Array);
   const bindGroup1 = wake.device.createBindGroup({
     label: label.with("phase", "count1").with("resource", "bindGroup").toString(),
     layout: count1Pipeline.getBindGroupLayout(0),
@@ -54,37 +55,40 @@ export async function radixSort<T extends WakeSupportedArray>(
 function buildCountShader(shift: number): string {
   return `
 const RADIX = ${RADIX}u;
-const MASK = ${RADIX - 1}u;
-const SHIFT = ${shift};
+const DIGIT_MASK = RADIX - 1u;
+const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
+const SHIFT = ${shift}u;
 
 @group(0) @binding(0) var<storage, read> keys: array<u32>;
 @group(0) @binding(1) var<storage, read_write> histogram: array<u32>;
 
 var<workgroup> local_hist: array<atomic<u32>, RADIX>;
 
-@compute @workgroup_size(RADIX)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn main(@builtin(workgroup_id) wid: vec3u,
-        @builtin(local_invocation_id) lid: vec3u) {
-  let m = wid.x; // index of current workgroup
+        @builtin(local_invocation_id) lid: vec3u,
+        @builtin(num_workgroups) num_wg: vec3u) {
+  let workgroup_idx = wid.x;
+  let num_workgroups = num_wg.x;
+  let bin = lid.x;
   let n = arrayLength(&keys);
-  let p = arrayLength(&histogram) / RADIX;
 
   // 1. zero the shared histogram
-  atomicStore(&local_hist[lid.x], 0u);
+  atomicStore(&local_hist[bin], 0u);
   workgroupBarrier();
 
   // 2. coalesced grid-stride sweep of this section
-  let section_size = (n + p - 1u) / p;
-  let start = m * section_size;
+  let section_size = (n + num_workgroups - 1u) / num_workgroups;
+  let start = workgroup_idx * section_size;
   let end = min(start + section_size, n);
-  for (var i = start + lid.x; i < end; i += ${WORKGROUP_SIZE}) {
-    let d = (keys[i] >> SHIFT) & MASK;
+  for (var i = start + lid.x; i < end; i += WORKGROUP_SIZE) {
+    let d = (keys[i] >> SHIFT) & DIGIT_MASK;
     atomicAdd(&local_hist[d], 1u);
   }
   workgroupBarrier();
 
   // 3. write this section's column into the global table
-  histogram[lid.x * p + m] = atomicLoad(&local_hist[lid.x]);
+  histogram[bin * num_workgroups + workgroup_idx] = atomicLoad(&local_hist[bin]);
 }
 `;
 }
