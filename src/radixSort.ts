@@ -69,6 +69,7 @@ export async function radixSort<T extends WakeSupportedArray>(
     wake.device.queue.submit([countEncoder.finish()]);
 
     // Phase 2: Scan (prefix sum)
+    // TODO: expose some sort of internal scan function that takes in the pass encoder etc
     const offsets = await scan(wake, histogram, "sum", false);
 
     // Phase 3: Reorder
@@ -143,74 +144,38 @@ fn main(@builtin(workgroup_id) wid: vec3u,
 `;
 }
 
+// TODO: this is just a one thread linear scan per workgroup, make it faster
 function buildReorderShader(shift: number): string {
   return `
 const RADIX = ${RADIX}u;
 const DIGIT_MASK = RADIX - 1u;
-const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
 const SHIFT = ${shift}u;
 
 @group(0) @binding(0) var<storage, read> keys_in: array<u32>;
 @group(0) @binding(1) var<storage, read> offsets: array<u32>;
 @group(0) @binding(2) var<storage, read_write> keys_out: array<u32>;
 
-var<workgroup> tile_digit: array<u32, WORKGROUP_SIZE>;
-var<workgroup> tile_hist: array<atomic<u32>, RADIX>;
-var<workgroup> cursor: array<u32, RADIX>; // running global write position per digit, this section
-
-@compute @workgroup_size(WORKGROUP_SIZE)
+@compute @workgroup_size(1)
 fn main(@builtin(workgroup_id) wid: vec3u,
-        @builtin(local_invocation_id) lid: vec3u,
         @builtin(num_workgroups) num_wg: vec3u) {
-  let workgroup_idx = wid.x;
-  let num_workgroups = num_wg.x;
+  let section_idx = wid.x;
+  let num_sections = num_wg.x;
   let n = arrayLength(&keys_in);
-  let t = lid.x;
 
-  // Section bounds — must match the count kernel's decomposition exactly.
-  let section_size = (n + num_workgroups - 1u) / num_workgroups;
-  let start = workgroup_idx * section_size;
+  let section_size = (n + num_sections - 1u) / num_sections;
+  let start = section_idx * section_size;
   let end = min(start + section_size, n);
 
-  // Seed each digit's write cursor from the scanned histogram (bin-major layout).
-  cursor[t] = offsets[t * num_workgroups + workgroup_idx];
-  workgroupBarrier();
+  var cursor: array<u32, RADIX>;
+  for (var d = 0u; d < RADIX; d += 1u) {
+    cursor[d] = offsets[d * num_sections + section_idx];
+  }
 
-  for (var tile_start = start; tile_start < end; tile_start += WORKGROUP_SIZE) {
-    let i = tile_start + t;
-    let in_range = i < end;
-    var key = 0u;
-    if (in_range) {
-      key = keys_in[i];
-    }
+  for (var i = start; i < end; i += 1u) {
+    let key = keys_in[i];
     let d = (key >> SHIFT) & DIGIT_MASK;
-
-    // Publish this tile's digits and per-digit counts.
-    atomicStore(&tile_hist[t], 0u);
-    workgroupBarrier();
-    tile_digit[t] = d;
-    if (in_range) {
-      atomicAdd(&tile_hist[d], 1u);
-    }
-    workgroupBarrier();
-
-    // Stable rank among same-digit keys earlier in this tile. Naive O(WORKGROUP_SIZE)
-    // scan; the coalesced-write version gets this for free from a local sort.
-    var rank = 0u;
-    for (var j = 0u; j < t; j += 1u) {
-      if (tile_digit[j] == d) {
-        rank += 1u;
-      }
-    }
-
-    if (in_range) {
-      keys_out[cursor[d] + rank] = key;
-    }
-    workgroupBarrier();
-
-    // Advance this section's cursors past the tile (lane t owns digit t, WG == RADIX).
-    cursor[t] += atomicLoad(&tile_hist[t]);
-    workgroupBarrier();
+    keys_out[cursor[d]] = key;
+    cursor[d] += 1u;
   }
 }
 `;
