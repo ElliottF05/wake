@@ -36,7 +36,6 @@ v2: after caching pipeline (lower sizes are faster, but middle ones are slower?)
 2^28 (268435456): 13.775 ms, 77.94859 GB/s
 
 TODO:
+- write radix sort
 - defer improving reduce kernel until i can test on 3080
-- greatly improve code quality for scan
-- improve code quality for tests
 - make scan use coalesced memory accessing
