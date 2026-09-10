@@ -1,5 +1,6 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
 import { wgslDtypeOf } from "./ops";
+import { scan } from "./scan";
 import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
@@ -8,7 +9,7 @@ import { WakeLabel } from "./wakeLabel";
 const BITS_PER_PASS = 8;
 const RADIX = 1 << BITS_PER_PASS; // 256
 const WORKGROUP_SIZE = RADIX; // 256
-const NUM_PASSES = 32 / BITS_PER_PASS; // 4
+// NUM_PASSES = 32 / BITS_PER_PASS (4) — add back with the per-pass loop
 
 // TODO: add optional `values` param?
 export async function radixSort<T extends WakeSupportedArray>(
@@ -44,11 +45,20 @@ export async function radixSort<T extends WakeSupportedArray>(
   const computePass = encoder.beginComputePass({
     label: label.with("resource", "computePass").toString(),
   });
+
+  // Phase 1: Count
   computePass.setPipeline(count1Pipeline);
   computePass.setBindGroup(0, bindGroup1);
   computePass.dispatchWorkgroups(numWorkgroups);
   computePass.end();
   wake.device.queue.submit([encoder.finish()]);
+
+  // Phase 2: Scan (prefix sum)
+  const offsets = await scan(wake, histogram, "sum", false);
+  histogram.destroy();
+
+  // TODO: Phase 3 (reorder)
+  offsets.destroy();
   return keys;
 }
 
