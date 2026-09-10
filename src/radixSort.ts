@@ -1,15 +1,27 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
-import { wgslDtypeOf } from "./ops";
+import { type WgslDtype, wgslDtypeOf } from "./ops";
 import { scan } from "./scan";
 import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
 // These are all intentionally interdependent, don't change them without careful
-// consideration.
+// consideration
 const BITS_PER_PASS = 8;
 const RADIX = 1 << BITS_PER_PASS; // 256
 const WORKGROUP_SIZE = RADIX; // 256
 const NUM_PASSES = 32 / BITS_PER_PASS; // 4
+
+// Maps a key's bits so they appear in sorted order when interpreted as u32
+const SORT_KEY_WGSL: Record<WgslDtype, string> = {
+  u32: "fn to_sort_key(k: u32) -> u32 { return k; }",
+  // i32 (two's complement): flip the sign bit
+  i32: "fn to_sort_key(k: u32) -> u32 { return k ^ 0x80000000u; }",
+  // f32: if negative flip all bits, otherwise flip just the sign bit
+  f32: `fn to_sort_key(k: u32) -> u32 {
+  let mask = select(0x80000000u, 0xffffffffu, (k >> 31u) == 1u);
+  return k ^ mask;
+}`,
+};
 
 // TODO: add optional `values` param?
 export async function radixSort<T extends WakeSupportedArray>(
@@ -20,12 +32,9 @@ export async function radixSort<T extends WakeSupportedArray>(
     return keys;
   }
   const dtype = wgslDtypeOf(keys);
-  if (dtype !== "u32") {
-    throw Error("only u32 is supported by radixSort for now"); // TODO: fix this
-  }
   const label = new WakeLabel().with("primitive", "radixSort").with("dtype", dtype);
   const pipelineFor = (phase: string, buildCode: () => string) =>
-    wake.getOrCreatePipeline(`radixSort:${phase}`, () => ({
+    wake.getOrCreatePipeline(`radixSort:${dtype}:${phase}`, () => ({
       code: buildCode(),
       label: label.with("phase", phase),
     }));
@@ -34,8 +43,8 @@ export async function radixSort<T extends WakeSupportedArray>(
     Array.from({ length: NUM_PASSES }, (_, pass) => {
       const shift = pass * BITS_PER_PASS;
       return Promise.all([
-        pipelineFor(`count${pass}`, () => buildCountShader(shift)),
-        pipelineFor(`reorder${pass}`, () => buildReorderShader(shift)),
+        pipelineFor(`count${pass}`, () => buildCountShader(dtype, shift)),
+        pipelineFor(`reorder${pass}`, () => buildReorderShader(dtype, shift)),
       ]);
     }),
   );
@@ -106,12 +115,14 @@ export async function radixSort<T extends WakeSupportedArray>(
   return keys;
 }
 
-function buildCountShader(shift: number): string {
+function buildCountShader(dtype: WgslDtype, shift: number): string {
   return `
 const RADIX = ${RADIX}u;
 const DIGIT_MASK = RADIX - 1u;
 const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
 const SHIFT = ${shift}u;
+
+${SORT_KEY_WGSL[dtype]}
 
 @group(0) @binding(0) var<storage, read> keys: array<u32>;
 @group(0) @binding(1) var<storage, read_write> histogram: array<u32>;
@@ -136,7 +147,7 @@ fn main(@builtin(workgroup_id) wid: vec3u,
   let start = workgroup_idx * section_size;
   let end = min(start + section_size, n);
   for (var i = start + lid.x; i < end; i += WORKGROUP_SIZE) {
-    let d = (keys[i] >> SHIFT) & DIGIT_MASK;
+    let d = (to_sort_key(keys[i]) >> SHIFT) & DIGIT_MASK;
     atomicAdd(&local_hist[d], 1u);
   }
   workgroupBarrier();
@@ -148,11 +159,13 @@ fn main(@builtin(workgroup_id) wid: vec3u,
 }
 
 // TODO: this is just a one thread linear scan per workgroup, make it faster
-function buildReorderShader(shift: number): string {
+function buildReorderShader(dtype: WgslDtype, shift: number): string {
   return `
 const RADIX = ${RADIX}u;
 const DIGIT_MASK = RADIX - 1u;
 const SHIFT = ${shift}u;
+
+${SORT_KEY_WGSL[dtype]}
 
 @group(0) @binding(0) var<storage, read> keys_in: array<u32>;
 @group(0) @binding(1) var<storage, read> offsets: array<u32>;
@@ -176,7 +189,7 @@ fn main(@builtin(workgroup_id) wid: vec3u,
 
   for (var i = start; i < end; i += 1u) {
     let key = keys_in[i];
-    let d = (key >> SHIFT) & DIGIT_MASK;
+    let d = (to_sort_key(key) >> SHIFT) & DIGIT_MASK;
     keys_out[cursor[d]] = key;
     cursor[d] += 1u;
   }
