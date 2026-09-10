@@ -46,6 +46,7 @@ export async function radixSort<T extends WakeSupportedArray>(
   let dst = scratch.raw;
   for (let pass = 0; pass < NUM_PASSES; pass++) {
     const shift = pass * BITS_PER_PASS;
+    // TODO: should `pass` be incorporated here or be a separate "arg"?
     const countPipeline = await pipelineFor(`count${pass}`, () => buildCountShader(dtype, shift));
     const reorderPipeline = await pipelineFor(`reorder${pass}`, () =>
       buildReorderShader(dtype, shift),
