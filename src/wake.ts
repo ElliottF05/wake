@@ -1,4 +1,5 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
+// TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import {
   emptyBuffer,
@@ -7,7 +8,10 @@ import {
   type WakeSupportedArray,
   type WakeSupportedArrayConstructor,
 } from "./buffer";
+import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
+import { scan } from "./scan";
+import type { WakeLabel } from "./wakeLabel";
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -16,7 +20,7 @@ export interface WakeOptions {
 
 export class Wake {
   readonly device: GPUDevice;
-  private readonly pipelineCache = new Map();
+  private readonly pipelineCache = new Map<string, Promise<GPUComputePipeline>>();
 
   private constructor(device: GPUDevice) {
     this.device = device;
@@ -74,15 +78,42 @@ export class Wake {
     return emptyBuffer(this, length, view);
   }
 
-  sum<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "sum", this.pipelineCache);
+  reduce<T extends WakeSupportedArray>(
+    input: WakeBuffer<T>,
+    op: AssociativeOp,
+  ): Promise<WakeBuffer<T>> {
+    return reduce(this, input, op);
   }
 
-  min<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "min", this.pipelineCache);
+  scan<T extends WakeSupportedArray>(
+    input: WakeBuffer<T>,
+    op: AssociativeOp,
+    inclusive: boolean,
+  ): Promise<WakeBuffer<T>> {
+    return scan(this, input, op, inclusive);
   }
 
-  max<T extends WakeSupportedArray>(input: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return reduce(this, input, "max", this.pipelineCache);
+  getOrCreatePipeline(
+    key: string,
+    build: () => {
+      code: string;
+      label: WakeLabel;
+    },
+  ): Promise<GPUComputePipeline> {
+    let cached = this.pipelineCache.get(key);
+    if (!cached) {
+      const { code, label } = build();
+      const module = this.device.createShaderModule({
+        label: label.with("resource", "shader").toString(),
+        code,
+      });
+      cached = this.device.createComputePipelineAsync({
+        label: label.with("resource", "pipeline").toString(),
+        layout: "auto",
+        compute: { module },
+      });
+      this.pipelineCache.set(key, cached);
+    }
+    return cached;
   }
 }

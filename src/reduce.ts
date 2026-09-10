@@ -1,67 +1,33 @@
 import type { WakeBuffer, WakeSupportedArray } from "./buffer";
+import {
+  ASSOCIATIVE_OPS,
+  type AssociativeOp,
+  type AssociativeOpWgsl,
+  type WgslDtype,
+  wgslCombineFn,
+  wgslDtypeOf,
+} from "./ops";
 import type { Wake } from "./wake";
-
-export type ReduceOp = "sum" | "min" | "max";
-
-type WgslDtype = "f32" | "u32" | "i32";
-
-type ReduceOpWgsl = {
-  combine: string;
-  identity: Record<WgslDtype, string>;
-};
-
-const REDUCE_OPS: Record<ReduceOp, ReduceOpWgsl> = {
-  sum: {
-    combine: "a + b",
-    identity: { f32: "0f", u32: "0u", i32: "0i" },
-  },
-  min: {
-    combine: "min(a, b)",
-    identity: {
-      f32: "0x1.fffffep+127f", // f32 max
-      u32: "0xffffffffu",
-      i32: "2147483647i",
-    },
-  },
-  max: {
-    combine: "max(a, b)",
-    identity: {
-      f32: "-0x1.fffffep+127f", // f32 min
-      u32: "0u",
-      i32: "-2147483647i - 1i",
-    },
-  },
-};
+import { WakeLabel } from "./wakeLabel";
 
 export async function reduce<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
-  op: ReduceOp,
-  pipelineCache: Map<string, Promise<GPUComputePipeline>>,
+  op: AssociativeOp,
 ): Promise<WakeBuffer<T>> {
   const workgroupSize = 256; // TODO: tune this and also maybe make it a passable param
   const dtype = wgslDtypeOf(input);
-  const label = (what: string) => `wake:reduce:${what} (op=${op}, dtype=${dtype})`;
-  const key = `${op}:${dtype}:${workgroupSize}`;
-  let cached = pipelineCache.get(key);
-  if (!cached) {
-    const module = wake.device.createShaderModule({
-      label: label("shader"),
-      code: buildReduceShader(dtype, REDUCE_OPS[op], workgroupSize),
-    });
-    cached = wake.device.createComputePipelineAsync({
-      label: label("pipeline"),
-      layout: "auto",
-      compute: { module },
-    });
-    pipelineCache.set(key, cached);
-  }
-  const pipeline = await cached;
+  const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
+  const key = `reduce:${op}:${dtype}:${workgroupSize}`;
+  const pipeline = await wake.getOrCreatePipeline(key, () => ({
+    code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op], workgroupSize),
+    label: label,
+  }));
   const p = Math.ceil(Math.sqrt(input.length));
   const scratch = wake.empty(p, input.view);
   const output = wake.empty(1, input.view);
   const bindGroup1 = wake.device.createBindGroup({
-    label: label("bindGroup1"),
+    label: label.with("resource", "bindGroup1").toString(),
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: input.raw } },
@@ -69,15 +35,19 @@ export async function reduce<T extends WakeSupportedArray>(
     ],
   });
   const bindGroup2 = wake.device.createBindGroup({
-    label: label("bindGroup2"),
+    label: label.with("resource", "bindGroup2").toString(),
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: scratch.raw } },
       { binding: 1, resource: { buffer: output.raw } },
     ],
   });
-  const encoder = wake.device.createCommandEncoder({ label: label("encoder") });
-  const computePass = encoder.beginComputePass({ label: label("computePass") });
+  const encoder = wake.device.createCommandEncoder({
+    label: label.with("resource", "encoder").toString(),
+  });
+  const computePass = encoder.beginComputePass({
+    label: label.with("resource", "computePass").toString(),
+  });
   computePass.setPipeline(pipeline);
   computePass.setBindGroup(0, bindGroup1);
   computePass.dispatchWorkgroups(Math.ceil(p / workgroupSize));
@@ -89,27 +59,14 @@ export async function reduce<T extends WakeSupportedArray>(
   return output;
 }
 
-function wgslDtypeOf(buffer: WakeBuffer<WakeSupportedArray>): WgslDtype {
-  if (buffer.view === Float32Array) return "f32";
-  if (buffer.view === Uint32Array) return "u32";
-  if (buffer.view === Int32Array) return "i32";
-  throw new Error(
-    `unsupported element type ${buffer.view.name}, expected Float32Array, Uint32Array, or Int32Array`,
-  );
-}
-
-// for now, this just does a linear scan on one thread, very inefficient!
-// TODO: make this faster
-function buildReduceShader(dtype: WgslDtype, op: ReduceOpWgsl, workgroupSize: number): string {
-  const combine = op.combine;
+// TODO: make this faster based on data from running on 3080
+function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl, workgroupSize: number): string {
   const identity = op.identity[dtype];
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;
 
-fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
-  return ${combine};
-}
+${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(${workgroupSize})
 fn main(@builtin(global_invocation_id) gid: vec3u) {
