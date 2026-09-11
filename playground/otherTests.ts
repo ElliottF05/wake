@@ -1,16 +1,9 @@
 import type { Wake } from "../src/index";
+import { randomInput } from "./randomInput";
 import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
 
 // These tests are auxiliary tests for determining useful information, outside
 // of the scope of testing correctness/performance of WAKE itself.
-
-function randomFloat32Array(length: number): Float32Array {
-  const data = new Float32Array(length);
-  for (let i = 0; i < length; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-  return data;
-}
 
 const JS_BATCHES = 5;
 const JS_ITERS = 3;
@@ -19,7 +12,7 @@ const JS_ITERS = 3;
 export async function testJsReducePerformance(): Promise<void> {
   console.log("Beginning JS CPU reduce baseline:");
 
-  const jsData = randomFloat32Array(2 ** MAX_LOG2);
+  const jsData = randomInput("f32", 2 ** MAX_LOG2);
 
   let jsSink = 0;
   const jsRows: string[] = [];
@@ -52,7 +45,7 @@ export async function testJsReducePerformance(): Promise<void> {
 export async function testJsScanPerformance(): Promise<void> {
   console.log("Beginning JS CPU scan baseline:");
 
-  const jsData = randomFloat32Array(2 ** MAX_LOG2);
+  const jsData = randomInput("f32", 2 ** MAX_LOG2);
   const jsOutput = new Float32Array(2 ** MAX_LOG2);
 
   let jsSink = 0;
@@ -94,10 +87,7 @@ export async function testCopyKernel(wake: Wake): Promise<void> {
   const BATCHES = 9;
   const WORKGROUP_SIZE = 256;
 
-  const data = new Float32Array(2 ** MAX_LOG2);
-  for (let i = 0; i < data.length; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
+  const data = randomInput("f32", 2 ** MAX_LOG2);
 
   const copyModule = wake.device.createShaderModule({
     label: "wake:playground:copy",

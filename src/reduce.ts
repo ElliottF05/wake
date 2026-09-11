@@ -17,6 +17,12 @@ export async function reduce<T extends WakeSupportedArray>(
   input: WakeBuffer<T>,
   op: AssociativeOp,
 ): Promise<WakeBuffer<T>> {
+  if (input.length === 0) {
+    if (op !== "sum") {
+      throw new Error(`reduce: cannot ${op} an empty buffer`);
+    }
+    return wake.empty(1, input.view);
+  }
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
   const key = `reduce:${op}:${dtype}`;

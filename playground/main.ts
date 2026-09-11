@@ -1,6 +1,7 @@
 import { Wake } from "../src/index";
 import { testCopyKernel, testJsReducePerformance, testJsScanPerformance } from "./otherTests";
-import { testCorrectness, testReducePerformance, testScanPerformance } from "./tests";
+import { testCorrectness } from "./testCorrectness";
+import { testReducePerformance, testScanPerformance } from "./testPerformance";
 
 const wake = await Wake.create();
 
