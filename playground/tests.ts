@@ -81,7 +81,7 @@ const COMBINE: Record<Op, (a: number, b: number) => number> = {
 
 function jsReduce(input: number[], op: Op, dtype: WgslDtype): number[] {
   if (input.length === 0) {
-    // reduce(empty) returns a zero-filled buffer, not the op's true identity — see reduce.ts
+    // only reachable for sum, min/max should never reach here
     return [0];
   }
   let acc = IDENTITY[op][dtype];
@@ -133,7 +133,7 @@ export async function testCorrectness(wake: Wake): Promise<void> {
     check("wrap external GPUBuffer", await wrapped.read(), i);
   }
 
-  // validate each (primitive, op, dtype, size) against the corresponding JS 
+  // validate each (primitive, op, dtype, size) against the corresponding JS
   // implementation
   for (const dtype of DTYPES) {
     for (const n of INPUT_SIZES) {
@@ -143,6 +143,11 @@ export async function testCorrectness(wake: Wake): Promise<void> {
         const approx = op === "sum" && dtype === "f32";
         const opInput = op === "sum" ? randomSumInput(dtype, n) : input;
         const ref = [...opInput];
+
+        // skip empty input for min/max
+        if (n === 0 && (op === "min" || op === "max")) {
+          continue;
+        }
 
         const rin = wake.buffer(opInput);
         const rout = await wake.reduce(rin, op);

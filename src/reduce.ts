@@ -18,8 +18,11 @@ export async function reduce<T extends WakeSupportedArray>(
   op: AssociativeOp,
 ): Promise<WakeBuffer<T>> {
   if (input.length === 0) {
-    // wake.empty() zero-inits for free, so this is a cheap, well-defined answer without a
-    // dispatch — it doesn't distinguish sum's identity (0) from min/max's, which is fine.
+    if (op !== "sum") {
+      throw new Error(`reduce: cannot ${op} an empty buffer`);
+    }
+    // sum's identity is 0 regardless of dtype, and wake.empty() zero-inits for free —
+    // no dispatch needed.
     return wake.empty(1, input.view);
   }
   const dtype = wgslDtypeOf(input);
