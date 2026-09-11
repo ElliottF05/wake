@@ -21,8 +21,6 @@ export async function reduce<T extends WakeSupportedArray>(
     if (op !== "sum") {
       throw new Error(`reduce: cannot ${op} an empty buffer`);
     }
-    // sum's identity is 0 regardless of dtype, and wake.empty() zero-inits for free —
-    // no dispatch needed.
     return wake.empty(1, input.view);
   }
   const dtype = wgslDtypeOf(input);
