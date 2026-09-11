@@ -7,5 +7,10 @@ export default defineConfig({
   server: {
     https: true,
     host: true,
+    headers: {
+      // Cross-origin isolation required for full-precision timestamp-query results
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
   },
 });
