@@ -1,6 +1,6 @@
 import type { Wake } from "../src/index";
 import type { WgslDtype } from "../src/ops";
-import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
+import { randomInput } from "./randomInput";
 
 // ===== correctness: input generation =====
 
@@ -9,21 +9,6 @@ const DTYPES = ["f32", "u32", "i32"] as const;
 // 0, 1, small values, powers of two and +/-1 around them, plus one large case
 // biome-ignore format: keep on one line
 const INPUT_SIZES = [0, 1, 2, 3, 31, 32, 33, 255, 256, 257, 1023, 1024, 1025, 65535, 65536, 65537, 1 << 20];
-
-function randomInput(dtype: WgslDtype, n: number): Float32Array | Uint32Array | Int32Array {
-  if (dtype === "f32") {
-    const a = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      a[i] = Math.random() * 2 - 1;
-    }
-    return a;
-  }
-  const a = dtype === "u32" ? new Uint32Array(n) : new Int32Array(n);
-  for (let i = 0; i < n; i++) {
-    a[i] = Math.random() * 2 ** 32; // typed-array assignment wraps to the full u32/i32 range
-  }
-  return a;
-}
 
 // Used on sum operations to avoid overflow
 function randomSumInput(dtype: WgslDtype, n: number): Float32Array | Uint32Array | Int32Array {
@@ -184,68 +169,4 @@ export async function testCorrectness(wake: Wake): Promise<void> {
   );
   checksRun = 0;
   failures.length = 0;
-}
-
-// ===== performance tests =====
-
-const PERF_WARMUP = 5;
-const PERF_ITERS = 32;
-const PERF_BATCHES = 9;
-
-export async function testReducePerformance(wake: Wake): Promise<void> {
-  console.log("Beginning reduce performance tests:");
-
-  const perfRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
-    console.log(`measuring 2^${log2}...`);
-    const n = 2 ** log2;
-    const data = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const input = wake.buffer(data);
-    const ms = await measureMedianMs({
-      warmup: PERF_WARMUP,
-      batches: PERF_BATCHES,
-      iters: PERF_ITERS,
-      run: () => wake.reduce(input, "sum"),
-      drain: () => wake.device.queue.onSubmittedWorkDone(),
-    });
-    input.destroy();
-    const gbps = (n * 4) / (ms * 1e6);
-    perfRows.push(formatRow(log2, n, ms, gbps));
-  }
-
-  console.log(`Reduce performance results:\n${perfRows.join("\n")}`);
-}
-
-export async function testScanPerformance(wake: Wake): Promise<void> {
-  console.log("Beginning scan performance tests:");
-
-  const perfRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
-    console.log(`measuring 2^${log2}...`);
-    const n = 2 ** log2;
-    const data = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const input = wake.buffer(data);
-    const ms = await measureMedianMs({
-      warmup: PERF_WARMUP,
-      batches: PERF_BATCHES,
-      iters: PERF_ITERS,
-      run: async () => {
-        (await wake.scan(input, "sum", true)).destroy();
-      },
-      drain: () => wake.device.queue.onSubmittedWorkDone(),
-    });
-    input.destroy();
-    // scan reads input twice (phase 1's reduction, phase 3's re-derived local scan) and
-    // writes output once (phase 3), so 3n elements moved total rather than reduce's n.
-    const gbps = (3 * n * 4) / (ms * 1e6);
-    perfRows.push(formatRow(log2, n, ms, gbps));
-  }
-
-  console.log(`Scan performance results:\n${perfRows.join("\n")}`);
 }
