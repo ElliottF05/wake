@@ -2,196 +2,186 @@ import type { Wake } from "../src/index";
 import type { WgslDtype } from "../src/ops";
 import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
 
-export async function testCorrectness(wake: Wake): Promise<void> {
-  let passed = 0;
-  let failed = 0;
+// ===== correctness: input generation =====
 
-  function report(name: string, ok: boolean, reason?: string): void {
-    if (ok) {
-      passed++;
+const DTYPES = ["f32", "u32", "i32"] as const;
+
+// 0, 1, small values, powers of two and +/-1 around them, plus one large case
+// biome-ignore format: keep on one line
+const INPUT_SIZES = [0, 1, 2, 3, 31, 32, 33, 255, 256, 257, 1023, 1024, 1025, 65535, 65536, 65537, 1 << 20];
+
+function randomInput(dtype: WgslDtype, n: number): Float32Array | Uint32Array | Int32Array {
+  if (dtype === "f32") {
+    const a = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      a[i] = Math.random() * 2 - 1;
+    }
+    return a;
+  }
+  const a = dtype === "u32" ? new Uint32Array(n) : new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    a[i] = Math.random() * 2 ** 32; // typed-array assignment wraps to the full u32/i32 range
+  }
+  return a;
+}
+
+// Used on sum operations to avoid overflow
+function randomSumInput(dtype: WgslDtype, n: number): Float32Array | Uint32Array | Int32Array {
+  const values = Array.from({ length: n }, () =>
+    dtype === "f32" ? Math.random() * 1000 : Math.floor(Math.random() * 1001),
+  );
+  if (dtype === "f32") return new Float32Array(values);
+  if (dtype === "u32") return new Uint32Array(values);
+  return new Int32Array(values);
+}
+
+// ===== correctness: check + report =====
+
+let checksRun = 0;
+const failures: string[] = [];
+
+function check(
+  name: string,
+  actual: ArrayLike<number>,
+  expected: ArrayLike<number>,
+  approx = false,
+): void {
+  checksRun++;
+  if (actual.length !== expected.length) {
+    failures.push(`${name}: length ${actual.length}, expected ${expected.length}`);
+    return;
+  }
+  for (let i = 0; i < expected.length; i++) {
+    const a = actual[i];
+    const e = expected[i];
+    const ok = approx ? Math.abs(a - e) <= 1e-3 * Math.max(1, Math.abs(e)) : a === e;
+    if (!ok) {
+      failures.push(`${name}: index ${i}, got ${a}, expected ${e}`);
+      return;
+    }
+  }
+}
+
+// ===== correctness: JS reference implementations =====
+
+type Op = "sum" | "min" | "max";
+
+const F32_MAX = new Float32Array(new Uint32Array([0x7f7fffff]).buffer)[0];
+const IDENTITY: Record<Op, Record<WgslDtype, number>> = {
+  sum: { f32: 0, u32: 0, i32: 0 },
+  min: { f32: F32_MAX, u32: 0xffffffff, i32: 2147483647 },
+  max: { f32: -F32_MAX, u32: 0, i32: -2147483648 },
+};
+
+const COMBINE: Record<Op, (a: number, b: number) => number> = {
+  sum: (a, b) => a + b,
+  min: (a, b) => Math.min(a, b),
+  max: (a, b) => Math.max(a, b),
+};
+
+function jsReduce(input: number[], op: Op, dtype: WgslDtype): number[] {
+  if (input.length === 0) {
+    // reduce(empty) returns a zero-filled buffer, not the op's true identity — see reduce.ts
+    return [0];
+  }
+  let acc = IDENTITY[op][dtype];
+  for (const x of input) {
+    acc = COMBINE[op](acc, x);
+  }
+  return [acc];
+}
+
+function jsScan(input: number[], op: Op, inclusive: boolean, dtype: WgslDtype): number[] {
+  const out: number[] = [];
+  let acc = IDENTITY[op][dtype];
+  for (const x of input) {
+    if (inclusive) {
+      acc = COMBINE[op](acc, x);
+      out.push(acc);
     } else {
-      failed++;
-      console.log(`${name}: failed, ${reason}`);
+      out.push(acc);
+      acc = COMBINE[op](acc, x);
     }
   }
+  return out;
+}
 
-  function checkArray(name: string, actual: ArrayLike<number>, expected: ArrayLike<number>): void {
-    if (actual.length !== expected.length) {
-      report(name, false, `expected length ${expected.length}, got ${actual.length}`);
-      return;
-    }
-    for (let i = 0; i < expected.length; i++) {
-      if (actual[i] !== expected[i]) {
-        report(name, false, `expected [${Array.from(expected)}], got [${Array.from(actual)}]`);
-        return;
-      }
-    }
-    report(name, true);
-  }
+function jsSort(input: number[]): number[] {
+  return [...input].sort((a, b) => a - b);
+}
 
-  function checkArrayApprox(
-    name: string,
-    actual: ArrayLike<number>,
-    expected: ArrayLike<number>,
-  ): void {
-    if (actual.length !== expected.length) {
-      report(name, false, `expected length ${expected.length}, got ${actual.length}`);
-      return;
-    }
-    for (let i = 0; i < expected.length; i++) {
-      if (Math.abs(actual[i] - expected[i]) > 1e-6) {
-        report(
-          name,
-          false,
-          `expected [${Array.from(expected)}], got [${Array.from(actual)}] (first mismatch at index ${i})`,
-        );
-        return;
-      }
-    }
-    report(name, true);
-  }
+// ===== testCorrectness =====
 
-  function checkScalar(name: string, actual: ArrayLike<number>, expected: number): void {
-    if (actual.length !== 1) {
-      report(name, false, `expected a length-1 result, got length ${actual.length}`);
-      return;
-    }
-    if (Math.abs(actual[0] - expected) > 1e-6) {
-      report(name, false, `expected ${expected}, got ${actual[0]}`);
-      return;
-    }
-    report(name, true);
-  }
-
-  // 1. create from data, read it back
+export async function testCorrectness(wake: Wake): Promise<void> {
+  // buffer API round-trips
   {
-    const name = "buffer round-trip";
-    const input = new Float32Array([1, 2, 3, 4, 5]);
-    checkArray(name, await wake.buffer(input).read(), input);
-  }
+    const f = new Float32Array([1, 2, 3, 4, 5]);
+    check("buffer round-trip", await wake.buffer(f).read(), f);
 
-  // 2. create a buffer, overwrite it with new data, read back
-  {
-    const name = "buffer write";
-    const input = new Uint32Array([10, 20, 30, 40]);
-    const buf = wake.buffer(new Uint32Array([0, 0, 0, 0]));
-    buf.write(input);
-    checkArray(name, await buf.read(), input);
-  }
+    const u = new Uint32Array([10, 20, 30, 40]);
+    const written = wake.buffer(new Uint32Array(4));
+    written.write(u);
+    check("buffer write", await written.read(), u);
 
-  // 3. wrap an externally created GPUBuffer, then write to it and read back
-  {
-    const name = "wrap external GPUBuffer";
-    const input = new Int32Array([-1, -2, -3]);
+    const i = new Int32Array([-1, -2, -3]);
     const raw = wake.device.createBuffer({
-      size: input.byteLength,
+      size: i.byteLength,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
     const wrapped = wake.wrap(raw, Int32Array);
-    wrapped.write(input);
-    checkArray(name, await wrapped.read(), input);
+    wrapped.write(i);
+    check("wrap external GPUBuffer", await wrapped.read(), i);
   }
 
-  // 4. test correctness against JS implementation for each (op, dtype)
-  const F32_MAX = new Float32Array(new Uint32Array([0x7f7fffff]).buffer)[0];
+  // validate each (primitive, op, dtype, size) against the corresponding JS 
+  // implementation
+  for (const dtype of DTYPES) {
+    for (const n of INPUT_SIZES) {
+      const input = randomInput(dtype, n);
 
-  const reductions: Record<
-    "sum" | "min" | "max",
-    { f: (a: number, b: number) => number; identity: Record<WgslDtype, number> }
-  > = {
-    sum: {
-      f: (a, b) => a + b,
-      identity: { f32: 0, u32: 0, i32: 0 },
-    },
-    min: {
-      f: (a, b) => Math.min(a, b),
-      identity: { f32: F32_MAX, u32: 0xffffffff, i32: 2147483647 },
-    },
-    max: {
-      f: (a, b) => Math.max(a, b),
-      identity: { f32: -F32_MAX, u32: 0, i32: -2147483648 },
-    },
-  };
+      for (const op of ["sum", "min", "max"] as const) {
+        const approx = op === "sum" && dtype === "f32";
+        const opInput = op === "sum" ? randomSumInput(dtype, n) : input;
+        const ref = [...opInput];
 
-  const datasets = [
-    { dtype: "f32" as const, data: new Float32Array([3.5, 1.25, 4, 1, 5, 9.5, 2, 6]) },
-    { dtype: "u32" as const, data: new Uint32Array([3, 1, 4, 1, 5, 9, 2, 6]) },
-    { dtype: "i32" as const, data: new Int32Array([3, -1, 4, -1, 5, -9, 2, -6]) },
-  ];
+        const rin = wake.buffer(opInput);
+        const rout = await wake.reduce(rin, op);
+        check(`reduce/${op}/${dtype}/n=${n}`, await rout.read(), jsReduce(ref, op, dtype), approx);
+        rin.destroy();
+        rout.destroy();
 
-  for (const { dtype, data } of datasets) {
-    for (const op of ["sum", "min", "max"] as const) {
-      const { f, identity } = reductions[op];
-      const expected = Array.from(data).reduce((acc, x) => f(acc, x), identity[dtype]);
-      const result = await (await wake.reduce(wake.buffer(data), op)).read();
-      checkScalar(`reduce correctness (${op}, ${dtype})`, result, expected);
+        for (const inclusive of [true, false]) {
+          const sin = wake.buffer(opInput);
+          const sout = await wake.scan(sin, op, inclusive);
+          check(
+            `scan/${op}/${inclusive ? "inc" : "exc"}/${dtype}/n=${n}`,
+            await sout.read(),
+            jsScan(ref, op, inclusive, dtype),
+            approx,
+          );
+          sin.destroy();
+          sout.destroy();
+        }
+      }
+
+      const kbuf = wake.buffer(input);
+      await wake.radixSort(kbuf);
+      check(`radixSort/${dtype}/n=${n}`, await kbuf.read(), jsSort([...input]));
+      kbuf.destroy();
     }
   }
 
-  // 5. test scan correctness against a JS implementation for each (op, dtype, inclusive)
-  function jsScan(
-    data: ArrayLike<number>,
-    f: (a: number, b: number) => number,
-    identity: number,
-    inclusive: boolean,
-  ): number[] {
-    const result: number[] = [];
-    let acc = identity;
-    for (let i = 0; i < data.length; i++) {
-      if (inclusive) {
-        acc = f(acc, data[i]);
-        result.push(acc);
-      } else {
-        result.push(acc);
-        acc = f(acc, data[i]);
-      }
-    }
-    return result;
-  }
-
-  for (const { dtype, data } of datasets) {
-    for (const op of ["sum", "min", "max"] as const) {
-      const { f, identity } = reductions[op];
-      for (const inclusive of [true, false]) {
-        const expected = jsScan(data, f, identity[dtype], inclusive);
-        const result = await (await wake.scan(wake.buffer(data), op, inclusive)).read();
-        const mode = inclusive ? "inclusive" : "exclusive";
-        checkArrayApprox(`scan correctness (${op}, ${dtype}, ${mode})`, result, expected);
-      }
-    }
-  }
-
-  // 6. radix sort correctness (u32 only for now)
-  for (const n of [0, 1, 2, 255, 256, 257, 4096, 65537, 300_000]) {
-    const name = `radixSort correctness (n=${n})`;
-    try {
-      const data = new Uint32Array(n);
-      for (let i = 0; i < n; i++) {
-        data[i] = Math.floor(Math.random() * 2 ** 32);
-      }
-      const expected = data.slice().sort();
-      const buf = wake.buffer(data);
-      const actual = await (await wake.radixSort(buf)).read();
-      const firstMismatch = Array.from(expected).findIndex((x, i) => x !== actual[i]);
-      if (actual.length !== expected.length) {
-        report(name, false, `length ${actual.length}, expected ${expected.length}`);
-      } else if (firstMismatch !== -1) {
-        report(
-          name,
-          false,
-          `index ${firstMismatch}: got ${actual[firstMismatch]}, expected ${expected[firstMismatch]}`,
-        );
-      } else {
-        report(name, true);
-      }
-      buf.destroy();
-    } catch (e) {
-      report(name, false, `threw: ${e}`);
-    }
-  }
-
-  console.log(`Correctness test results: ${passed} passed, ${failed} failed`);
+  // report correctness results
+  console.log(
+    failures.length === 0
+      ? `all ${checksRun} correctness checks passed`
+      : `${failures.length}/${checksRun} correctness checks failed:\n${failures.join("\n")}`,
+  );
+  checksRun = 0;
+  failures.length = 0;
 }
+
+// ===== performance tests =====
 
 const PERF_WARMUP = 5;
 const PERF_ITERS = 32;

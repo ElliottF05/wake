@@ -18,6 +18,9 @@ export async function scan<T extends WakeSupportedArray>(
   op: AssociativeOp,
   inclusive: boolean,
 ): Promise<WakeBuffer<T>> {
+  if (input.length === 0) {
+    return wake.empty(0, input.view);
+  }
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>

@@ -17,6 +17,11 @@ export async function reduce<T extends WakeSupportedArray>(
   input: WakeBuffer<T>,
   op: AssociativeOp,
 ): Promise<WakeBuffer<T>> {
+  if (input.length === 0) {
+    // wake.empty() zero-inits for free, so this is a cheap, well-defined answer without a
+    // dispatch — it doesn't distinguish sum's identity (0) from min/max's, which is fine.
+    return wake.empty(1, input.view);
+  }
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
   const key = `reduce:${op}:${dtype}`;
