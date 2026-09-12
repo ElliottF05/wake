@@ -1,6 +1,6 @@
 import type { Wake } from "../src/index";
 import { randomInput } from "./randomInput";
-import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
+import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testPerformance";
 
 // These tests are auxiliary tests for determining useful information, outside
 // of the scope of testing correctness/performance of WAKE itself.
