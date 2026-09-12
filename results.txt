@@ -36,6 +36,8 @@ v2: after caching pipeline (lower sizes are faster, but middle ones are slower?)
 2^28 (268435456): 13.775 ms, 77.94859 GB/s
 
 TODO:
-- write radix sort
-- defer improving reduce kernel until i can test on 3080
-- make scan use coalesced memory accessing
+- greatly improve scan performance
+- make reduce use tree-like structure
+- further radix sort improvements if needed beyond scan?
+- add a compute pass builder to wake so multiple kernels can be fused into a 
+  single compute pass, also allowing user custom kernels

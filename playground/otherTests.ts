@@ -1,22 +1,21 @@
 import type { Wake } from "../src/index";
 import { randomInput } from "./randomInput";
-import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testUtils";
+import { formatRow, measureMs } from "./testPerformance";
 
 // These tests are auxiliary tests for determining useful information, outside
 // of the scope of testing correctness/performance of WAKE itself.
 
-const JS_BATCHES = 5;
 const JS_ITERS = 3;
 
 // JS CPU reduction (sum) baseline
-export async function testJsReducePerformance(): Promise<void> {
+export async function testJsReducePerformance(minLog2: number, maxLog2: number): Promise<void> {
   console.log("Beginning JS CPU reduce baseline:");
 
-  const jsData = randomInput("f32", 2 ** MAX_LOG2);
+  const jsData = randomInput("f32", 2 ** maxLog2);
 
   let jsSink = 0;
   const jsRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring js reduce 2^${log2}...`);
     const n = 2 ** log2;
 
@@ -28,9 +27,8 @@ export async function testJsReducePerformance(): Promise<void> {
       jsSink += s;
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: JS_ITERS,
-      batches: JS_BATCHES,
       iters: JS_ITERS,
       run: runOne,
     });
@@ -42,15 +40,15 @@ export async function testJsReducePerformance(): Promise<void> {
 }
 
 // JS CPU scan (inclusive cumulative sum) baseline
-export async function testJsScanPerformance(): Promise<void> {
+export async function testJsScanPerformance(minLog2: number, maxLog2: number): Promise<void> {
   console.log("Beginning JS CPU scan baseline:");
 
-  const jsData = randomInput("f32", 2 ** MAX_LOG2);
-  const jsOutput = new Float32Array(2 ** MAX_LOG2);
+  const jsData = randomInput("f32", 2 ** maxLog2);
+  const jsOutput = new Float32Array(2 ** maxLog2);
 
   let jsSink = 0;
   const jsRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring js scan 2^${log2}...`);
     const n = 2 ** log2;
 
@@ -63,9 +61,8 @@ export async function testJsScanPerformance(): Promise<void> {
       jsSink += jsOutput[n - 1];
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: JS_ITERS,
-      batches: JS_BATCHES,
       iters: JS_ITERS,
       run: runOne,
     });
@@ -77,17 +74,37 @@ export async function testJsScanPerformance(): Promise<void> {
   console.log(`JS CPU scan baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
 }
 
+// JS sort baseline, for comparison against radixSort.
+export async function testJsSortPerformance(minLog2: number, maxLog2: number): Promise<void> {
+  console.log("Beginning JS sort baseline:");
+
+  const jsRows: string[] = [];
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
+    console.log(`measuring js sort 2^${log2}...`);
+    const n = 2 ** log2;
+    const jsData = randomInput("u32", n);
+    const ms = await measureMs({
+      warmup: 0,
+      iters: 1,
+      run: () => jsData.sort(),
+    });
+
+    const mkeysPerSec = n / (ms * 1e3);
+    jsRows.push(`2^${log2} (${n}): ${ms.toFixed(3)} ms, ${mkeysPerSec.toFixed(3)} Mkeys/s`);
+  }
+  console.log(`JS sort baseline:\n${jsRows.join("\n")}`);
+}
+
 // Copy-kernel bandwidth: a simple dst[i] = src[i] kernel to get an idea of the
 // max possible memory bandwidth on this system
-export async function testCopyKernel(wake: Wake): Promise<void> {
+export async function testCopyKernel(wake: Wake, minLog2: number, maxLog2: number): Promise<void> {
   console.log("Beginning copy kernel bandwidth test:");
 
   const WARMUP = 5;
   const ITERS = 32;
-  const BATCHES = 9;
   const WORKGROUP_SIZE = 256;
 
-  const data = randomInput("f32", 2 ** MAX_LOG2);
+  const data = randomInput("f32", 2 ** maxLog2);
 
   const copyModule = wake.device.createShaderModule({
     label: "wake:playground:copy",
@@ -112,7 +129,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
   });
 
   const copyRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring copy 2^${log2}...`);
     const n = 2 ** log2;
     const src = wake.device.createBuffer({
@@ -144,9 +161,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
       wake.device.queue.submit([encoder.finish()]);
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: WARMUP,
-      batches: BATCHES,
       iters: ITERS,
       run: submitCopy,
       drain: () => wake.device.queue.onSubmittedWorkDone(),
@@ -161,21 +177,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
 }
 
 // wake.empty() cost in isolation
-export async function testEmptyBuffer(wake: Wake): Promise<void> {
+export async function testEmptyBuffer(wake: Wake, minLog2: number, maxLog2: number): Promise<void> {
   console.log("Beginning wake.empty() benchmark:");
   const WARMUP = 5;
   const ITERS = 32;
-  const BATCHES = 9;
   const emptyRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring empty 2^${log2}...`);
     const n = 2 ** log2;
     const allocate = () => {
       wake.empty(n, Float32Array).destroy();
     };
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: WARMUP,
-      batches: BATCHES,
       iters: ITERS,
       run: allocate,
     });
