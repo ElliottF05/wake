@@ -3,7 +3,6 @@ import type { Wake } from "../src/index";
 import { randomInput } from "./randomInput";
 
 // ===== shared measurement helpers =====
-// (also used by otherTests.ts's auxiliary benchmarks)
 
 export const MIN_LOG2 = 16;
 export const MAX_LOG2 = 28;
@@ -45,11 +44,9 @@ export function formatRow(log2: number, n: number, ms: number, gbps: number): st
 
 const PERF_WARMUP = 5;
 const PERF_ITERS = 32;
-const PERF_BATCHES = 9;
+const PERF_BATCHES = 1;
 
-// Runs `run` across a 2^MIN_LOG2..2^MAX_LOG2 sweep of random f32 input, logging a GB/s row
-// per size. `bytesPerElement` is the total bytes read *and* written per element across
-// every pass of the algorithm, not just its byte width — see each call site for why.
+// `bytesPerElement` is the total bytes read *and* written per element across
 async function runPerfSweep(
   wake: Wake,
   name: string,
