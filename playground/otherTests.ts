@@ -1,11 +1,10 @@
 import type { Wake } from "../src/index";
 import { randomInput } from "./randomInput";
-import { formatRow, MAX_LOG2, MIN_LOG2, measureMedianMs } from "./testPerformance";
+import { formatRow, MAX_LOG2, MIN_LOG2, measureMs } from "./testPerformance";
 
 // These tests are auxiliary tests for determining useful information, outside
 // of the scope of testing correctness/performance of WAKE itself.
 
-const JS_BATCHES = 5;
 const JS_ITERS = 3;
 
 // JS CPU reduction (sum) baseline
@@ -28,9 +27,8 @@ export async function testJsReducePerformance(): Promise<void> {
       jsSink += s;
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: JS_ITERS,
-      batches: JS_BATCHES,
       iters: JS_ITERS,
       run: runOne,
     });
@@ -63,9 +61,8 @@ export async function testJsScanPerformance(): Promise<void> {
       jsSink += jsOutput[n - 1];
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: JS_ITERS,
-      batches: JS_BATCHES,
       iters: JS_ITERS,
       run: runOne,
     });
@@ -84,7 +81,6 @@ export async function testCopyKernel(wake: Wake): Promise<void> {
 
   const WARMUP = 5;
   const ITERS = 32;
-  const BATCHES = 9;
   const WORKGROUP_SIZE = 256;
 
   const data = randomInput("f32", 2 ** MAX_LOG2);
@@ -144,9 +140,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
       wake.device.queue.submit([encoder.finish()]);
     };
 
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: WARMUP,
-      batches: BATCHES,
       iters: ITERS,
       run: submitCopy,
       drain: () => wake.device.queue.onSubmittedWorkDone(),
@@ -301,7 +296,6 @@ export async function testEmptyBuffer(wake: Wake): Promise<void> {
   console.log("Beginning wake.empty() benchmark:");
   const WARMUP = 5;
   const ITERS = 32;
-  const BATCHES = 9;
   const emptyRows: string[] = [];
   for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
     console.log(`measuring empty 2^${log2}...`);
@@ -309,9 +303,8 @@ export async function testEmptyBuffer(wake: Wake): Promise<void> {
     const allocate = () => {
       wake.empty(n, Float32Array).destroy();
     };
-    const ms = await measureMedianMs({
+    const ms = await measureMs({
       warmup: WARMUP,
-      batches: BATCHES,
       iters: ITERS,
       run: allocate,
     });
