@@ -4,9 +4,6 @@ import { randomInput } from "./randomInput";
 
 // ===== shared measurement helpers =====
 
-export const MIN_LOG2 = 16;
-export const MAX_LOG2 = 28;
-
 export async function measureMs(opts: {
   warmup: number;
   iters: number;
@@ -42,6 +39,8 @@ const PERF_ITERS = 16;
 // `bytesPerElement` is the total bytes read *and* written per element across
 async function runPerfSweep(
   wake: Wake,
+  minLog2: number,
+  maxLog2: number,
   name: string,
   bytesPerElement: number,
   run: (input: WakeBuffer<WakeSupportedArray>) => Promise<void>,
@@ -49,7 +48,7 @@ async function runPerfSweep(
   console.log(`Beginning ${name} performance tests:`);
 
   const perfRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring 2^${log2}...`);
     const n = 2 ** log2;
     const input = wake.buffer(randomInput("f32", n));
@@ -67,30 +66,42 @@ async function runPerfSweep(
   console.log(`${name} performance results:\n${perfRows.join("\n")}`);
 }
 
-export async function testReducePerformance(wake: Wake): Promise<void> {
+export async function testReducePerformance(
+  wake: Wake,
+  minLog2: number,
+  maxLog2: number,
+): Promise<void> {
   // reads n elements, writes a single (negligible) output
-  await runPerfSweep(wake, "Reduce", 4, async (input) => {
+  await runPerfSweep(wake, minLog2, maxLog2, "Reduce", 4, async (input) => {
     (await wake.reduce(input, "sum")).destroy();
   });
 }
 
-export async function testScanPerformance(wake: Wake): Promise<void> {
+export async function testScanPerformance(
+  wake: Wake,
+  minLog2: number,
+  maxLog2: number,
+): Promise<void> {
   // reads input twice (phase 1's reduction, phase 3's re-derived local scan) and writes
   // output once (phase 3), so 3n elements moved total rather than reduce's n
-  await runPerfSweep(wake, "Scan", 12, async (input) => {
+  await runPerfSweep(wake, minLog2, maxLog2, "Scan", 12, async (input) => {
     (await wake.scan(input, "sum", true)).destroy();
   });
 }
 
 // Can't use `runPerfSweep` since radixSort mutates data in place, and sorted
 // data will run slower due to contention in the count pass.
-export async function testRadixSortPerformance(wake: Wake): Promise<void> {
+export async function testRadixSortPerformance(
+  wake: Wake,
+  minLog2: number,
+  maxLog2: number,
+): Promise<void> {
   console.log("Beginning RadixSort performance tests:");
 
   const WARMUP = 3;
   const ITERS = 3;
   const perfRows: string[] = [];
-  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
     console.log(`measuring 2^${log2}...`);
     const n = 2 ** log2;
 
