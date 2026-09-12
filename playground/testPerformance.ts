@@ -37,7 +37,7 @@ export function formatRow(log2: number, n: number, ms: number, gbps: number): st
 // ===== WAKE primitive performance sweeps =====
 
 const PERF_WARMUP = 5;
-const PERF_ITERS = 32;
+const PERF_ITERS = 16;
 
 // `bytesPerElement` is the total bytes read *and* written per element across
 async function runPerfSweep(
@@ -80,4 +80,44 @@ export async function testScanPerformance(wake: Wake): Promise<void> {
   await runPerfSweep(wake, "Scan", 12, async (input) => {
     (await wake.scan(input, "sum", true)).destroy();
   });
+}
+
+// Can't use `runPerfSweep` since radixSort mutates data in place, and sorted
+// data will run slower due to contention in the count pass.
+export async function testRadixSortPerformance(wake: Wake): Promise<void> {
+  console.log("Beginning RadixSort performance tests:");
+
+  const WARMUP = 3;
+  const ITERS = 3;
+  const perfRows: string[] = [];
+  for (let log2 = MIN_LOG2; log2 <= MAX_LOG2; log2++) {
+    console.log(`measuring 2^${log2}...`);
+    const n = 2 ** log2;
+
+    const warmupInput = wake.buffer(randomInput("u32", n));
+    for (let i = 0; i < WARMUP; i++) {
+      await wake.radixSort(warmupInput);
+    }
+    warmupInput.destroy();
+
+    let totalMs = 0;
+    for (let i = 0; i < ITERS; i++) {
+      const input = wake.buffer(randomInput("u32", n));
+      totalMs += await measureMs({
+        warmup: 0,
+        iters: 1,
+        run: () => wake.radixSort(input),
+        drain: () => wake.device.queue.onSubmittedWorkDone(),
+      });
+      input.destroy();
+    }
+    const ms = totalMs / ITERS;
+
+    // 4 passes, each reading n once for count and reading+writing n once for reorder:
+    // 12 full passes over the data, at 4 bytes/element
+    const gbps = (12 * 4 * n) / (ms * 1e6);
+    perfRows.push(formatRow(log2, n, ms, gbps));
+  }
+
+  console.log(`RadixSort performance results:\n${perfRows.join("\n")}`);
 }
