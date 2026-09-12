@@ -124,6 +124,7 @@ export async function testRadixSortPerformance(
     }
     const ms = totalMs / ITERS;
 
+    // TODO: check this
     // 4 passes, each reading n once for count and reading+writing n once for reorder:
     // 12 full passes over the data, at 4 bytes/element
     const gbps = (12 * 4 * n) / (ms * 1e6);
