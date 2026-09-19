@@ -86,7 +86,7 @@ export async function scan<T extends WakeSupportedArray>(
 }
 
 // TODO: make these shaders faster based on data from running on 3080
-// TODO: extract consts out to the top of each shader, similar to radixSort.ts?
+// TODO: extract consts out to the top of each shader?
 function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   const identity = op.identity[dtype];
   return `

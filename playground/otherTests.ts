@@ -74,27 +74,6 @@ export async function testJsScanPerformance(minLog2: number, maxLog2: number): P
   console.log(`JS CPU scan baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
 }
 
-// JS sort baseline, for comparison against radixSort.
-export async function testJsSortPerformance(minLog2: number, maxLog2: number): Promise<void> {
-  console.log("Beginning JS sort baseline:");
-
-  const jsRows: string[] = [];
-  for (let log2 = minLog2; log2 <= maxLog2; log2++) {
-    console.log(`measuring js sort 2^${log2}...`);
-    const n = 2 ** log2;
-    const jsData = randomInput("u32", n);
-    const ms = await measureMs({
-      warmup: 0,
-      iters: 1,
-      run: () => jsData.sort(),
-    });
-
-    const mkeysPerSec = n / (ms * 1e3);
-    jsRows.push(`2^${log2} (${n}): ${ms.toFixed(3)} ms, ${mkeysPerSec.toFixed(3)} Mkeys/s`);
-  }
-  console.log(`JS sort baseline:\n${jsRows.join("\n")}`);
-}
-
 // Copy-kernel bandwidth: a simple dst[i] = src[i] kernel to get an idea of the
 // max possible memory bandwidth on this system
 export async function testCopyKernel(wake: Wake, minLog2: number, maxLog2: number): Promise<void> {

@@ -38,6 +38,5 @@ v2: after caching pipeline (lower sizes are faster, but middle ones are slower?)
 TODO:
 - greatly improve scan performance
 - make reduce use tree-like structure
-- further radix sort improvements if needed beyond scan?
 - add a compute pass builder to wake so multiple kernels can be fused into a 
   single compute pass, also allowing user custom kernels

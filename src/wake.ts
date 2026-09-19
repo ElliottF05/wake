@@ -9,7 +9,6 @@ import {
   type WakeSupportedArrayConstructor,
 } from "./buffer";
 import type { AssociativeOp } from "./ops";
-import { radixSort } from "./radixSort";
 import { reduce } from "./reduce";
 import { scan } from "./scan";
 import type { WakeLabel } from "./wakeLabel";
@@ -94,10 +93,6 @@ export class Wake {
     inclusive: boolean,
   ): Promise<WakeBuffer<T>> {
     return scan(this, input, op, inclusive);
-  }
-
-  radixSort<T extends WakeSupportedArray>(keys: WakeBuffer<T>): Promise<WakeBuffer<T>> {
-    return radixSort(this, keys);
   }
 
   getOrCreatePipeline(

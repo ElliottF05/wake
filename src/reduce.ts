@@ -71,7 +71,7 @@ export async function reduce<T extends WakeSupportedArray>(
 // TODO: make this faster based on data from running on 3080
 function buildReduceShader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   const identity = op.identity[dtype];
-  // TODO: extract consts out to the top, similar to how radixSort.ts does?
+  // TODO: extract consts out to the top?
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> output: array<${dtype}>;

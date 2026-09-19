@@ -91,10 +91,6 @@ function jsScan(input: number[], op: Op, inclusive: boolean, dtype: WgslDtype): 
   return out;
 }
 
-function jsSort(input: number[]): number[] {
-  return [...input].sort((a, b) => a - b);
-}
-
 // ===== testCorrectness =====
 
 export async function testCorrectness(wake: Wake): Promise<void> {
@@ -153,11 +149,6 @@ export async function testCorrectness(wake: Wake): Promise<void> {
           sout.destroy();
         }
       }
-
-      const kbuf = wake.buffer(input);
-      await wake.radixSort(kbuf);
-      check(`radixSort/${dtype}/n=${n}`, await kbuf.read(), jsSort([...input]));
-      kbuf.destroy();
     }
   }
 
