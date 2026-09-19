@@ -16,7 +16,6 @@ export async function scan<T extends WakeSupportedArray>(
   wake: Wake,
   input: WakeBuffer<T>,
   op: AssociativeOp,
-  inclusive: boolean,
 ): Promise<WakeBuffer<T>> {
   if (input.length === 0) {
     return wake.empty(0, input.view);
@@ -34,8 +33,8 @@ export async function scan<T extends WakeSupportedArray>(
   const phase2Pipeline = await pipelineFor("phase2", `${op}:${dtype}`, () =>
     buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op]),
   );
-  const phase3Pipeline = await pipelineFor("phase3", `${op}:${dtype}:${inclusive}`, () =>
-    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], inclusive),
+  const phase3Pipeline = await pipelineFor("phase3", `${op}:${dtype}`, () =>
+    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op]),
   );
   const n = input.length;
   const p = Math.ceil(Math.sqrt(2 * n));
@@ -137,7 +136,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 }
 
-function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl, inclusive: boolean): string {
+function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
   return `
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
@@ -158,9 +157,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let end = min(start + block_size, n);
   var prev = scratch[b];
   for (var i = start; i < end; i++) {
-    let old_prev = prev;
+    output[i] = prev;
     prev = combine(prev, input[i]);
-    output[i] = ${inclusive ? "prev" : "old_prev"};
   }
 }
 `;

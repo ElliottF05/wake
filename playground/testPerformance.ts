@@ -85,6 +85,6 @@ export async function testScanPerformance(
   // reads input twice (phase 1's reduction, phase 3's re-derived local scan) and writes
   // output once (phase 3), so 3n elements moved total rather than reduce's n
   await runPerfSweep(wake, minLog2, maxLog2, "Scan", 12, async (input) => {
-    (await wake.scan(input, "sum", true)).destroy();
+    (await wake.scan(input, "sum")).destroy();
   });
 }

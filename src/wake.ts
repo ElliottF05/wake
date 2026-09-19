@@ -90,9 +90,8 @@ export class Wake {
   scan<T extends WakeSupportedArray>(
     input: WakeBuffer<T>,
     op: AssociativeOp,
-    inclusive: boolean,
   ): Promise<WakeBuffer<T>> {
-    return scan(this, input, op, inclusive);
+    return scan(this, input, op);
   }
 
   getOrCreatePipeline(

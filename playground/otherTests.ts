@@ -39,7 +39,7 @@ export async function testJsReducePerformance(minLog2: number, maxLog2: number):
   console.log(`JS CPU reduce baseline (sink=${jsSink}):\n${jsRows.join("\n")}`);
 }
 
-// JS CPU scan (inclusive cumulative sum) baseline
+// JS CPU scan (exclusive cumulative sum) baseline
 export async function testJsScanPerformance(minLog2: number, maxLog2: number): Promise<void> {
   console.log("Beginning JS CPU scan baseline:");
 
@@ -55,8 +55,8 @@ export async function testJsScanPerformance(minLog2: number, maxLog2: number): P
     const runOne = () => {
       let acc = 0;
       for (let i = 0; i < n; i++) {
-        acc += jsData[i];
         jsOutput[i] = acc;
+        acc += jsData[i];
       }
       jsSink += jsOutput[n - 1];
     };

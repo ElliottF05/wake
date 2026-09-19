@@ -76,17 +76,12 @@ function jsReduce(input: number[], op: Op, dtype: WgslDtype): number[] {
   return [acc];
 }
 
-function jsScan(input: number[], op: Op, inclusive: boolean, dtype: WgslDtype): number[] {
+function jsScan(input: number[], op: Op, dtype: WgslDtype): number[] {
   const out: number[] = [];
   let acc = IDENTITY[op][dtype];
   for (const x of input) {
-    if (inclusive) {
-      acc = COMBINE[op](acc, x);
-      out.push(acc);
-    } else {
-      out.push(acc);
-      acc = COMBINE[op](acc, x);
-    }
+    out.push(acc);
+    acc = COMBINE[op](acc, x);
   }
   return out;
 }
@@ -136,18 +131,11 @@ export async function testCorrectness(wake: Wake): Promise<void> {
         rin.destroy();
         rout.destroy();
 
-        for (const inclusive of [true, false]) {
-          const sin = wake.buffer(opInput);
-          const sout = await wake.scan(sin, op, inclusive);
-          check(
-            `scan/${op}/${inclusive ? "inc" : "exc"}/${dtype}/n=${n}`,
-            await sout.read(),
-            jsScan(ref, op, inclusive, dtype),
-            approx,
-          );
-          sin.destroy();
-          sout.destroy();
-        }
+        const sin = wake.buffer(opInput);
+        const sout = await wake.scan(sin, op);
+        check(`scan/${op}/${dtype}/n=${n}`, await sout.read(), jsScan(ref, op, dtype), approx);
+        sin.destroy();
+        sout.destroy();
       }
     }
   }
