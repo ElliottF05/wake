@@ -170,6 +170,7 @@ const IDENTITY = ${op.identity[dtype]};
 
 var<workgroup> tile: array<${dtype}, K * WORKGROUP_SIZE>;
 var<workgroup> partials: array<${dtype}, WORKGROUP_SIZE>;
+var<workgroup> tile_total: ${dtype};
 
 ${wgslCombineFn(dtype, op)}
 
@@ -217,6 +218,7 @@ fn main(
         partials[i] = prev;
         prev = combine(prev, x);
       }
+      tile_total = prev;
     }
 
     workgroupBarrier();
@@ -239,10 +241,10 @@ fn main(
       }
     }
 
-    running = combine(running, tile[K * WORKGROUP_SIZE - 1u]);
+    running = combine(running, tile_total);
 
+    workgroupBarrier();
   }
-
 }
 `;
 }
