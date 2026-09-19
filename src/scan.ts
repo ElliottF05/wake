@@ -20,7 +20,7 @@ export async function scan<T extends WakeSupportedArray>(
   if (input.length === 0) {
     return wake.empty(0, input.view);
   }
-  const K = 8;
+  const K = 16;
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
