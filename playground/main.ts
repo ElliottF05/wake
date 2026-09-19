@@ -7,8 +7,10 @@ import {
 } from "./otherTests";
 import { testCorrectness } from "./testCorrectness";
 import {
-  testReducePerformance,
-  testScanPerformance,
+  testReduceEndToEnd,
+  testReduceGPU,
+  testScanEndToEnd,
+  testScanGPU,
 } from "./testPerformance";
 
 const MIN_LOG2 = 16;
@@ -18,8 +20,10 @@ const wake = await Wake.create();
 
 // Main WAKE tests
 await testCorrectness(wake);
-// await testReducePerformance(wake, MIN_LOG2, MAX_LOG2);
-// await testScanPerformance(wake, MIN_LOG2, MAX_LOG2);
+await testReduceGPU(wake, MIN_LOG2, MAX_LOG2);
+await testReduceEndToEnd(wake, MIN_LOG2, MAX_LOG2);
+// await testScanGPU(wake, MIN_LOG2, MAX_LOG2);
+// await testScanEndToEnd(wake, MIN_LOG2, MAX_LOG2);
 
 // Other tests for auxiliary information
 // await testJsReducePerformance(MIN_LOG2, MAX_LOG2);

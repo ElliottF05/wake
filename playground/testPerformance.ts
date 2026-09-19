@@ -33,8 +33,8 @@ export function formatRow(log2: number, n: number, ms: number, gbps: number): st
 
 // ===== WAKE primitive performance sweeps =====
 
-const PERF_WARMUP = 5;
-const PERF_ITERS = 16;
+const PERF_WARMUP = 1;
+const PERF_ITERS = 5;
 
 // `bytesPerElement` is the total bytes read *and* written per element across
 async function runPerfSweep(
@@ -66,25 +66,40 @@ async function runPerfSweep(
   console.log(`${name} performance results:\n${perfRows.join("\n")}`);
 }
 
-export async function testReducePerformance(
-  wake: Wake,
-  minLog2: number,
-  maxLog2: number,
-): Promise<void> {
-  // reads n elements, writes a single (negligible) output
-  await runPerfSweep(wake, minLog2, maxLog2, "Reduce", 4, async (input) => {
+export async function testReduceGPU(wake: Wake, minLog2: number, maxLog2: number): Promise<void> {
+  await runPerfSweep(wake, minLog2, maxLog2, "Reduce (GPU)", 4, async (input) => {
     (await wake.reduce(input, "sum")).destroy();
   });
 }
 
-export async function testScanPerformance(
+export async function testReduceEndToEnd(
   wake: Wake,
   minLog2: number,
   maxLog2: number,
 ): Promise<void> {
-  // reads input twice (phase 1's reduction, phase 3's re-derived local scan) and writes
-  // output once (phase 3), so 3n elements moved total rather than reduce's n
-  await runPerfSweep(wake, minLog2, maxLog2, "Scan", 12, async (input) => {
+  await runPerfSweep(wake, minLog2, maxLog2, "Reduce (end-to-end)", 4, async (input) => {
+    const output = await wake.reduce(input, "sum");
+    await output.read();
+    output.destroy();
+  });
+}
+
+// scan reads input twice (phase 1's reduction, phase 3's re-derived local scan) and writes
+// output once (phase 3), so 3n elements moved total rather than reduce's n
+export async function testScanGPU(wake: Wake, minLog2: number, maxLog2: number): Promise<void> {
+  await runPerfSweep(wake, minLog2, maxLog2, "Scan (GPU)", 12, async (input) => {
     (await wake.scan(input, "sum")).destroy();
+  });
+}
+
+export async function testScanEndToEnd(
+  wake: Wake,
+  minLog2: number,
+  maxLog2: number,
+): Promise<void> {
+  await runPerfSweep(wake, minLog2, maxLog2, "Scan (end-to-end)", 12, async (input) => {
+    const output = await wake.scan(input, "sum");
+    await output.read();
+    output.destroy();
   });
 }
