@@ -20,6 +20,7 @@ export async function scan<T extends WakeSupportedArray>(
   if (input.length === 0) {
     return wake.empty(0, input.view);
   }
+  const K = 8;
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
@@ -28,18 +29,17 @@ export async function scan<T extends WakeSupportedArray>(
       label: label.with("phase", phase),
     }));
   const phase1Pipeline = await pipelineFor("phase1", `${op}:${dtype}`, () =>
-    buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op]),
+    buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op], K),
   );
   const phase2Pipeline = await pipelineFor("phase2", `${op}:${dtype}`, () =>
     buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op]),
   );
   const phase3Pipeline = await pipelineFor("phase3", `${op}:${dtype}`, () =>
-    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op]),
+    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], K),
   );
   const n = input.length;
-  const p = Math.ceil(Math.sqrt(2 * n));
-  const numWorkgroups = Math.ceil(p / WORKGROUP_SIZE);
-  const scratch = wake.empty(p, input.view);
+  const numWorkgroups = Math.ceil(n / (K * WORKGROUP_SIZE));
+  const scratch = wake.empty(numWorkgroups, input.view);
   const output = wake.empty(n, input.view);
   const bindGroup1 = wake.device.createBindGroup({
     label: label.with("phase", "phase1").with("resource", "bindGroup").toString(),
@@ -86,48 +86,67 @@ export async function scan<T extends WakeSupportedArray>(
 
 // TODO: make these shaders faster based on data from running on 3080
 // TODO: extract consts out to the top of each shader?
-function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
-  const identity = op.identity[dtype];
+// Builds `num_workgroups` partial reductions
+function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, K: number): string {
   return `
+const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
+const K = ${K}u;
+const IDENTITY = ${op.identity[dtype]};
+
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read_write> scratch: array<${dtype}>;
 
+var<workgroup> partials: array<${dtype}, WORKGROUP_SIZE>;
+
 ${wgslCombineFn(dtype, op)}
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn main(@builtin(global_invocation_id) gid: vec3u) {
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(
+  @builtin(global_invocation_id) gid: vec3u,
+  @builtin(local_invocation_id) lid: vec3u,
+  @builtin(workgroup_id) wid: vec3u,
+  @builtin(num_workgroups) num_workgroups: vec3u
+) {
   let n = arrayLength(&input);
-  let p = arrayLength(&scratch);
-  if (gid.x >= p) {
-    return;
-  }
-  let block_size = (n + p - 1u) / p;
-  let start = gid.x * block_size;
-  let end = min(start + block_size, n);
-  var acc = ${identity};
-  for (var i = start; i < end; i++) {
+  let elems_per_wg = K * WORKGROUP_SIZE;
+
+  let start = wid.x * elems_per_wg;
+  let end = min(start + elems_per_wg, n);
+  var acc = IDENTITY;
+  for (var i = start + lid.x; i < end; i += WORKGROUP_SIZE) {
     acc = combine(acc, input[i]);
   }
-  scratch[gid.x] = acc;
+  partials[lid.x] = acc;
+
+  workgroupBarrier();
+
+  if (lid.x == 0) {
+    acc = IDENTITY;
+    for (var i = 0u; i < WORKGROUP_SIZE; i++) {
+      acc = combine(acc, partials[i]);
+    }
+    scratch[wid.x] = acc;
+  }
 }
 `;
 }
 
+// Linear scan over the `num_workgroups` partial reductions from the previous phase.
 function buildPhase2Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
-  const identity = op.identity[dtype];
   return `
+const IDENTITY = ${op.identity[dtype]};
+
 @group(0) @binding(0) var<storage, read_write> scratch: array<${dtype}>;
 
 ${wgslCombineFn(dtype, op)}
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-  let p = arrayLength(&scratch);
   if (gid.x != 0) {
     return;
   }
-  var prev = ${identity};
-  for (var i = 0u; i < p; i++) {
+  var prev = IDENTITY;
+  for (var i = 0u; i < arrayLength(&scratch); i++) {
     let x = scratch[i];
     scratch[i] = prev;
     prev = combine(prev, x);
@@ -136,30 +155,81 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 `;
 }
 
-function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
+function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl, K: number): string {
   return `
+const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
+const K = ${K}u;
+const IDENTITY = ${op.identity[dtype]};
+
 @group(0) @binding(0) var<storage, read> input: array<${dtype}>;
 @group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
 @group(0) @binding(2) var<storage, read_write> output: array<${dtype}>;
 
+var<workgroup> tile: array<${dtype}, K * WORKGROUP_SIZE>;
+var<workgroup> partials: array<${dtype}, WORKGROUP_SIZE>;
+
 ${wgslCombineFn(dtype, op)}
 
-@compute @workgroup_size(${WORKGROUP_SIZE})
-fn main(@builtin(global_invocation_id) gid: vec3u) {
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn main(
+  @builtin(global_invocation_id) gid: vec3u,
+  @builtin(local_invocation_id) lid: vec3u,
+  @builtin(workgroup_id) wid: vec3u,
+  @builtin(num_workgroups) num_workgroups: vec3u
+) {
   let n = arrayLength(&input);
-  let p = arrayLength(&scratch);
-  let b = gid.x;
-  if (b >= p) {
-    return;
+  let elems_per_wg = K * WORKGROUP_SIZE;
+
+  for (var k = 0u; k < K; k++) {
+    let i = lid.x + k * WORKGROUP_SIZE;
+    let j = wid.x * elems_per_wg + i;
+    if (j < n) {
+      tile[i] = input[j];
+    } else {
+      tile[i] = IDENTITY;
+    }
   }
-  let block_size = (n + p - 1u) / p;
-  let start = b * block_size;
-  let end = min(start + block_size, n);
-  var prev = scratch[b];
-  for (var i = start; i < end; i++) {
-    output[i] = prev;
-    prev = combine(prev, input[i]);
+
+  workgroupBarrier();
+
+  var acc = IDENTITY;
+  for (var k = 0u; k < K; k++) {
+    let i = lid.x * K + k;
+    acc = combine(acc, tile[i]);
   }
+  partials[lid.x] = acc;
+
+  workgroupBarrier();
+
+  if (lid.x == 0) {
+    var prev = IDENTITY;
+    for (var i = 0u; i < WORKGROUP_SIZE; i++) {
+      let x = partials[i];
+      partials[i] = prev;
+      prev = combine(prev, x);
+    }
+  }
+
+  workgroupBarrier();
+
+  var prev = combine(scratch[wid.x], partials[lid.x]);
+  for (var k = 0u; k < K; k++) {
+    let i = lid.x * K + k;
+    let x = tile[i];
+    tile[i] = prev;
+    prev = combine(prev, x);
+  }
+
+  workgroupBarrier();
+
+  for (var k = 0u; k < K; k++) {
+    let i = lid.x + k * WORKGROUP_SIZE;
+    let j = wid.x * elems_per_wg + i;
+    if (j < n) {
+      output[j] = tile[i];
+    }
+  }
+
 }
 `;
 }
