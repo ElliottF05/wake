@@ -7,7 +7,7 @@ import {
   wgslCombineFn,
   wgslDtypeOf,
 } from "./ops";
-import type { Wake } from "./wake";
+import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
 const WORKGROUP_SIZE = 256;
@@ -38,7 +38,7 @@ export async function scan<T extends WakeSupportedArray>(
     buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], K),
   );
   const n = input.length;
-  const numWorkgroups = Math.ceil(n / (K * WORKGROUP_SIZE));
+  const numWorkgroups = Math.min(Math.ceil(n / (K * WORKGROUP_SIZE)), MAX_NUM_WORKGROUPS);
   const scratch = wake.empty(numWorkgroups, input.view);
   const output = wake.empty(n, input.view);
   const bindGroup1 = wake.device.createBindGroup({
@@ -108,7 +108,10 @@ fn main(
   @builtin(num_workgroups) num_workgroups: vec3u
 ) {
   let n = arrayLength(&input);
-  let elems_per_wg = K * WORKGROUP_SIZE;
+  let elems_per_tile = K * WORKGROUP_SIZE;
+  let num_tiles = (n + elems_per_tile - 1u) / elems_per_tile;
+  let tiles_per_wg = (num_tiles + num_workgroups.x - 1u) / num_workgroups.x;
+  let elems_per_wg = tiles_per_wg * elems_per_tile;
 
   let start = wid.x * elems_per_wg;
   let end = min(start + elems_per_wg, n);
@@ -178,56 +181,66 @@ fn main(
   @builtin(num_workgroups) num_workgroups: vec3u
 ) {
   let n = arrayLength(&input);
-  let elems_per_wg = K * WORKGROUP_SIZE;
+  let elems_per_tile = K * WORKGROUP_SIZE;
+  let num_tiles = (n + elems_per_tile - 1u) / elems_per_tile;
+  let tiles_per_wg = (num_tiles + num_workgroups.x - 1u) / num_workgroups.x;
+  let elems_per_wg = tiles_per_wg * elems_per_tile;
 
-  for (var k = 0u; k < K; k++) {
-    let i = lid.x + k * WORKGROUP_SIZE;
-    let j = wid.x * elems_per_wg + i;
-    if (j < n) {
-      tile[i] = input[j];
-    } else {
-      tile[i] = IDENTITY;
+  var running = scratch[wid.x];
+  for (var t = 0u; t < tiles_per_wg; t++) {
+
+    for (var k = 0u; k < K; k++) {
+      let i = lid.x + k * WORKGROUP_SIZE;
+      let j = (wid.x * tiles_per_wg + t) * elems_per_tile + i;
+      if (j < n) {
+        tile[i] = input[j];
+      } else {
+        tile[i] = IDENTITY;
+      }
     }
-  }
 
-  workgroupBarrier();
+    workgroupBarrier();
 
-  var acc = IDENTITY;
-  for (var k = 0u; k < K; k++) {
-    let i = lid.x * K + k;
-    acc = combine(acc, tile[i]);
-  }
-  partials[lid.x] = acc;
+    var acc = IDENTITY;
+    for (var k = 0u; k < K; k++) {
+      let i = lid.x * K + k;
+      acc = combine(acc, tile[i]);
+    }
+    partials[lid.x] = acc;
 
-  workgroupBarrier();
+    workgroupBarrier();
 
-  if (lid.x == 0) {
-    var prev = IDENTITY;
-    for (var i = 0u; i < WORKGROUP_SIZE; i++) {
-      let x = partials[i];
-      partials[i] = prev;
+    if (lid.x == 0) {
+      var prev = IDENTITY;
+      for (var i = 0u; i < WORKGROUP_SIZE; i++) {
+        let x = partials[i];
+        partials[i] = prev;
+        prev = combine(prev, x);
+      }
+    }
+
+    workgroupBarrier();
+
+    var prev = combine(running, partials[lid.x]);
+    for (var k = 0u; k < K; k++) {
+      let i = lid.x * K + k;
+      let x = tile[i];
+      tile[i] = prev;
       prev = combine(prev, x);
     }
-  }
 
-  workgroupBarrier();
+    workgroupBarrier();
 
-  var prev = combine(scratch[wid.x], partials[lid.x]);
-  for (var k = 0u; k < K; k++) {
-    let i = lid.x * K + k;
-    let x = tile[i];
-    tile[i] = prev;
-    prev = combine(prev, x);
-  }
-
-  workgroupBarrier();
-
-  for (var k = 0u; k < K; k++) {
-    let i = lid.x + k * WORKGROUP_SIZE;
-    let j = wid.x * elems_per_wg + i;
-    if (j < n) {
-      output[j] = tile[i];
+    for (var k = 0u; k < K; k++) {
+      let i = lid.x + k * WORKGROUP_SIZE;
+      let j = (wid.x * tiles_per_wg + t) * elems_per_tile + i;
+      if (j < n) {
+        output[j] = tile[i];
+      }
     }
+
+    running = combine(running, tile[K * WORKGROUP_SIZE - 1u]);
+
   }
 
 }
