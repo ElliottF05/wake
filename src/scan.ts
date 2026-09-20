@@ -20,7 +20,7 @@ export async function scan<T extends WakeSupportedArray>(
   if (input.length === 0) {
     return wake.empty(0, input.view);
   }
-  const K = 16;
+  const K = 8;
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
@@ -223,11 +223,10 @@ fn main(
 
     // Hillis-Steele over partials
     for (var d = 1u; d < WORKGROUP_SIZE; d *= 2) {
-      let x = select(
-        combine(partials[lid.x - d], partials[lid.x]), 
-        partials[lid.x], 
-        d > lid.x
-      );
+      var x = partials[lid.x];
+      if (d <= lid.x) {
+        x = combine(partials[lid.x - d], x);
+      }
       workgroupBarrier();
       partials[lid.x] = x;
       workgroupBarrier();
@@ -235,7 +234,10 @@ fn main(
     if (lid.x == 0) {
       tile_total = partials[WORKGROUP_SIZE - 1u];
     }
-    let x = select(partials[lid.x - 1], IDENTITY, lid.x == 0);
+    var x = IDENTITY;
+    if (lid.x != 0) {
+      x = partials[lid.x - 1];
+    }
     workgroupBarrier();
     partials[lid.x] = x;
 
