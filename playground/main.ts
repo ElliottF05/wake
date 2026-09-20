@@ -23,7 +23,7 @@ await testCorrectness(wake);
 // await testReduceGPU(wake, MIN_LOG2, MAX_LOG2);
 // await testReduceEndToEnd(wake, MIN_LOG2, MAX_LOG2);
 await testScanGPU(wake, MIN_LOG2, MAX_LOG2);
-// await testScanEndToEnd(wake, MIN_LOG2, MAX_LOG2);
+// await testScanEndToEnd(wake, MIN_LOG2, MAX_LOG2); // TODO: improve end-to-end performance
 
 // Other tests for auxiliary information
 // await testJsReducePerformance(MIN_LOG2, MAX_LOG2);
