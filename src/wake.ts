@@ -13,7 +13,7 @@ import { reduce } from "./reduce";
 import { scan } from "./scan";
 import type { WakeLabel } from "./wakeLabel";
 
-export const MAX_NUM_WORKGROUPS = 1024; // TODO: tune this, and in the future potentially have some runtime measurement of what is best
+export const MAX_NUM_WORKGROUPS = 1 * 1024; // TODO: tune this, and in the future potentially have some runtime measurement of what is best
 
 export interface WakeOptions {
   device?: GPUDevice;
@@ -49,6 +49,7 @@ export class Wake {
         label: "wake:device",
         requiredLimits: {
           maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+          maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
           maxBufferSize: adapter.limits.maxBufferSize,
         },
       });
