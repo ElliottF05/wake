@@ -211,15 +211,33 @@ fn main(
 
     workgroupBarrier();
 
-    if (lid.x == 0) {
-      var prev = IDENTITY;
-      for (var i = 0u; i < WORKGROUP_SIZE; i++) {
-        let x = partials[i];
-        partials[i] = prev;
-        prev = combine(prev, x);
-      }
-      tile_total = prev;
+    // if (lid.x == 0) {
+    //   var prev = IDENTITY;
+    //   for (var i = 0u; i < WORKGROUP_SIZE; i++) {
+    //     let x = partials[i];
+    //     partials[i] = prev;
+    //     prev = combine(prev, x);
+    //   }
+    //   tile_total = prev;
+    // }
+
+    // Hillis-Steele over partials
+    for (var d = 1u; d < WORKGROUP_SIZE; d *= 2) {
+      let x = select(
+        combine(partials[lid.x - d], partials[lid.x]), 
+        partials[lid.x], 
+        d > lid.x
+      );
+      workgroupBarrier();
+      partials[lid.x] = x;
+      workgroupBarrier();
     }
+    if (lid.x == 0) {
+      tile_total = partials[WORKGROUP_SIZE - 1u];
+    }
+    let x = select(partials[lid.x - 1], IDENTITY, lid.x == 0);
+    workgroupBarrier();
+    partials[lid.x] = x;
 
     workgroupBarrier();
 
