@@ -4,7 +4,7 @@
 import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
-import { scan } from "./scan";
+import { encodeScan, scan } from "./scan";
 
 export class Wake {
   readonly device: GPUDevice;
@@ -64,7 +64,15 @@ export class Wake {
     return reduce(this, input, op);
   }
 
-  scan<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
-    return scan(this, input, op);
+  scan(input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
+    return scan(this, input);
+  }
+
+  encodeScan(
+    pass: GPUComputePassEncoder,
+    input: WakeBuffer<"u32">,
+    scratch: WakeBuffer<"u32">,
+  ): void {
+    encodeScan(this, pass, input, scratch);
   }
 }
