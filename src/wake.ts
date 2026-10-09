@@ -71,7 +71,7 @@ export class Wake {
   encodeScan(
     pass: GPUComputePassEncoder,
     input: WakeBuffer<"u32">,
-    scratch: WakeBuffer<"u32">,
+    scratch: GPUBuffer,
   ): void {
     encodeScan(this, pass, input, scratch);
   }

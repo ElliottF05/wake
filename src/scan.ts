@@ -1,4 +1,5 @@
 import type { WakeBuffer } from "./buffer";
+import { getOrCreatePipeline } from "./pipeline";
 import type { Wake } from "./wake";
 
 const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
@@ -8,43 +9,98 @@ const ELEMS_PER_THREAD = 32;
 const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
 
-export function scanScratchLength(n: number): number {
-  throw new Error("not implemented");
+type ScratchLevel = {
+  byteOffset: number;
+  byteSize: number;
+  parentLength: number;
+};
+
+export function scanScratchBytes(n: number): number {
+  const levels = calculateScratchLevels(n);
+  const last = levels[levels.length - 1];
+  return last.byteOffset + last.byteSize;
 }
 
 export function scan(wake: Wake, input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
-  throw new Error("not implemented");
+  const encoder = wake.device.createCommandEncoder({ label: "wake:scan:encoder" });
+  const pass = encoder.beginComputePass({ label: "wake:scan:pass" });
+  const scratch = wake.device.createBuffer({
+    size: scanScratchBytes(input.length),
+    usage: GPUBufferUsage.STORAGE,
+  });
+  encodeScan(wake, pass, input, scratch);
+  pass.end();
+  wake.device.queue.submit([encoder.finish()]);
+  scratch.destroy();
+  return input;
 }
 
 export function encodeScan(
   wake: Wake,
   pass: GPUComputePassEncoder,
   input: WakeBuffer<"u32">,
-  scratch: WakeBuffer<"u32">,
+  scratch: GPUBuffer,
 ): void {
-  throw new Error("not implemented");
+  const phase1Pipeline = getOrCreatePipeline(wake.device, "scan:phase1", phase1Code);
+  const phase2Pipeline = getOrCreatePipeline(wake.device, "scan:phase2", phase2Code);
+
+  const levels = calculateScratchLevels(input.length);
+
+  const encodeLevel = (pipeline: GPUComputePipeline, phase: string, i: number): void => {
+    const level = levels[i];
+    const parent: GPUBufferBinding =
+      i === 0
+        ? { buffer: input.raw }
+        : { buffer: scratch, offset: levels[i - 1].byteOffset, size: levels[i - 1].byteSize };
+    const child: GPUBufferBinding = {
+      buffer: scratch,
+      offset: level.byteOffset,
+      size: level.byteSize,
+    };
+
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(
+      0,
+      wake.device.createBindGroup({
+        label: `wake:scan:${phase}:level${i}:bindGroup`,
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: parent },
+          { binding: 1, resource: child },
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(calculateNumWorkgroups(wake, level.parentLength));
+  };
+
+  for (let i = 0; i < levels.length - 1; i++) {
+    encodeLevel(phase1Pipeline, "phase1", i);
+  }
+  for (let i = levels.length - 1; i >= 0; i--) {
+    encodeLevel(phase2Pipeline, "phase2", i);
+  }
 }
 
 // TODO: handle edge cases where n = 0 or n = 1?
-function scratchOffsets(n: number): number[][] {
-  const reductionFactor = SUBGROUP_SIZE * ELEMS_PER_THREAD;
+function calculateScratchLevels(n: number): ScratchLevel[] {
   const alignment = 256;
 
-  const offsets = [];
-  let offset = 0;
+  const levels: ScratchLevel[] = [];
+  let byteOffset = 0;
 
   while (n > 1) {
-    n = Math.ceil(n / reductionFactor);
-    const numBytes = 4 * n;
-    offsets.push([offset, numBytes]);
-    offset += numBytes;
-    offset = Math.ceil(offset / alignment) * alignment;
+    const parentLength = n;
+    n = Math.ceil(n / ELEMS_PER_BLOCK);
+    const byteSize = 4 * n;
+    levels.push({ byteOffset, byteSize, parentLength });
+    byteOffset += byteSize;
+    byteOffset = Math.ceil(byteOffset / alignment) * alignment;
   }
 
-  return offsets;
+  return levels;
 }
 
-function numWorkgroups(wake: Wake, n: number): number {
+function calculateNumWorkgroups(wake: Wake, n: number): number {
   const targetWorkgroups = Math.ceil(n / ELEMS_PER_BLOCK);
   const maxWorkgroups = wake.device.limits.maxComputeWorkgroupsPerDimension;
   return Math.min(targetWorkgroups, maxWorkgroups);
