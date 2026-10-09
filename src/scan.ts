@@ -5,6 +5,7 @@ const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
 const WORKGROUP_SIZE = 256; // must be a multiple of SUBGROUP_SIZE (32)
 const ELEMS_PER_THREAD = 32;
 
+const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
 
 export function scanScratchLength(n: number): number {
@@ -49,13 +50,12 @@ function numWorkgroups(wake: Wake, n: number): number {
   return Math.min(targetWorkgroups, maxWorkgroups);
 }
 
-// TODO: should i use the js value of ELEMS_PER_BLOCK?
 const code = `
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
 const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
-const SUBGROUPS_PER_WORKGROUP: u32 = WORKGROUP_SIZE / SUBGROUP_SIZE;
-const ELEMS_PER_BLOCK: u32 = SG_SIZE * ELEMS_PER_THREAD;
+const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
+const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
 
 @group(0u) @binding(0u) var<storage, read_write> data: array<u32>;
 @group(0u) @binding(1u) var<storage, read_write> block_sums: array<u32>;
@@ -92,7 +92,7 @@ fn phase1(
         // coalesced addressing
         var sum = 0u;
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
-            let idx = curr_block * ELEMS_PER_BLOCK + sid + k * SG_SIZE;
+            let idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
             if (idx < data_len) {
                 sum += data[idx];
             }
@@ -118,7 +118,7 @@ fn phase2(
 ) {
     let data_len = arrayLength(&data);
     let num_blocks = div_ceil(data_len, ELEMS_PER_BLOCK);
-    let num_sg = num_wg.x * SUBGROUPS_PER_WORKGROUP
+    let num_sg = num_wg.x * SUBGROUPS_PER_WORKGROUP;
     let blocks_per_sg = div_ceil(num_blocks, num_sg);
     let sg = lid.x / SUBGROUP_SIZE;
     let global_sg = wid.x * SUBGROUPS_PER_WORKGROUP + sg;
@@ -133,7 +133,7 @@ fn phase2(
         // incr begins as the previous block sum
         var incr = block_sums[curr_block];
 
-        // scan each portion of SG_SIZE elements, incrementing the running incr
+        // scan each portion of SUBGROUP_SIZE elements, incrementing the running incr
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
             let data_idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
             var x = 0u;

@@ -2,26 +2,28 @@ const pipelineCaches = new WeakMap<GPUDevice, Map<string, GPUComputePipeline>>()
 
 export function getOrCreatePipeline(
   device: GPUDevice,
-  key: string,
+  shaderKey: string,
   code: string,
+  entryPoint: string,
 ): GPUComputePipeline {
   let cache = pipelineCaches.get(device);
   if (!cache) {
     cache = new Map();
     pipelineCaches.set(device, cache);
   }
-  let cached = cache.get(key);
-  if (!cached) {
+  const pipelineKey = `${shaderKey}:${entryPoint}`;
+  let pipeline = cache.get(pipelineKey);
+  if (!pipeline) {
     const module = device.createShaderModule({
-      label: `wake:${key}:shader`,
+      label: `wake:${pipelineKey}:shader`,
       code,
     });
-    cached = device.createComputePipeline({
-      label: `wake:${key}:pipeline`,
+    pipeline = device.createComputePipeline({
+      label: `wake:${pipelineKey}:pipeline`,
       layout: "auto",
-      compute: { module },
+      compute: { module, entryPoint },
     });
-    cache.set(key, cached);
+    cache.set(pipelineKey, pipeline);
   }
-  return cached;
+  return pipeline;
 }
