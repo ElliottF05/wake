@@ -60,11 +60,11 @@ export class Wake {
     return WakeBuffer.empty(this, length, dtype);
   }
 
-  reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): Promise<WakeBuffer<D>> {
+  reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
     return reduce(this, input, op);
   }
 
-  scan<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): Promise<WakeBuffer<D>> {
+  scan<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
     return scan(this, input, op);
   }
 }

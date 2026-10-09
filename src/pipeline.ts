@@ -1,15 +1,10 @@
-import type { WakeLabel } from "./wakeLabel";
-
-const pipelineCaches = new WeakMap<GPUDevice, Map<string, Promise<GPUComputePipeline>>>();
+const pipelineCaches = new WeakMap<GPUDevice, Map<string, GPUComputePipeline>>();
 
 export function getOrCreatePipeline(
   device: GPUDevice,
   key: string,
-  build: () => {
-    code: string;
-    label: WakeLabel;
-  },
-): Promise<GPUComputePipeline> {
+  code: string,
+): GPUComputePipeline {
   let cache = pipelineCaches.get(device);
   if (!cache) {
     cache = new Map();
@@ -17,13 +12,12 @@ export function getOrCreatePipeline(
   }
   let cached = cache.get(key);
   if (!cached) {
-    const { code, label } = build();
     const module = device.createShaderModule({
-      label: label.with("resource", "shader").toString(),
+      label: `wake:${key}:shader`,
       code,
     });
-    cached = device.createComputePipelineAsync({
-      label: label.with("resource", "pipeline").toString(),
+    cached = device.createComputePipeline({
+      label: `wake:${key}:pipeline`,
       layout: "auto",
       compute: { module },
     });
