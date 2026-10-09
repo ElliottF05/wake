@@ -50,7 +50,7 @@ function numWorkgroups(wake: Wake, n: number): number {
   return Math.min(targetWorkgroups, maxWorkgroups);
 }
 
-const code = `
+const phase1Code = `
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
 const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
@@ -106,6 +106,20 @@ fn phase1(
             block_sums[curr_block] = sum;
         }
     }
+}`;
+
+const phase2Code = `
+const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
+const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
+const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
+const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
+const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
+
+@group(0u) @binding(0u) var<storage, read_write> data: array<u32>;
+@group(0u) @binding(1u) var<storage, read_write> block_sums: array<u32>;
+
+fn div_ceil(a: u32, b: u32) -> u32 {
+    return (a + b - 1u) / b;
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
