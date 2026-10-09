@@ -11,52 +11,41 @@ import {
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
 import { scan } from "./scan";
-import type { WakeLabel } from "./wakeLabel";
-
-export const MAX_NUM_WORKGROUPS = 1 * 1024; // TODO: tune this, and in the future potentially have some runtime measurement of what is best
-
-export interface WakeOptions {
-  device?: GPUDevice;
-  powerPreference?: GPUPowerPreference;
-}
 
 export class Wake {
   readonly device: GPUDevice;
-  private readonly pipelineCache = new Map<string, Promise<GPUComputePipeline>>();
 
   private constructor(device: GPUDevice) {
     this.device = device;
   }
 
-  static isSupported(): boolean {
-    return globalThis.navigator?.gpu != null;
-  }
-
-  static async create(options: WakeOptions = {}): Promise<Wake> {
-    const { device, powerPreference = "high-performance" } = options;
-    if (device) {
-      return new Wake(device);
-    }
-    if (!Wake.isSupported()) {
-      throw new Error("WebGPU is not supported in this environment");
-    }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference });
-    if (!adapter) {
-      throw new Error("no WebGPU adapter available");
-    }
-    try {
-      const device = await adapter.requestDevice({
+  static async create(device?: GPUDevice): Promise<Wake> {
+    const requiredFeatures: GPUFeatureName[] = ["subgroups", "timestamp-query"];
+    if (!device) {
+      if (globalThis.navigator?.gpu == null) {
+        throw new Error("WebGPU is not supported in this environment");
+      }
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+      if (!adapter) {
+        throw new Error("no WebGPU adapter available");
+      }
+      device = await adapter.requestDevice({
         label: "wake:device",
+        requiredFeatures,
         requiredLimits: {
           maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
           maxComputeWorkgroupStorageSize: adapter.limits.maxComputeWorkgroupStorageSize,
           maxBufferSize: adapter.limits.maxBufferSize,
         },
       });
-      return new Wake(device);
-    } catch (cause) {
-      throw new Error("failed to acquire a WebGPU device", { cause });
+    } else {
+      for (const feature of requiredFeatures) {
+        if (!device.features.has(feature)) {
+          throw new Error(`wake requires the "${feature}" WebGPU feature, which this device lacks`);
+        }
+      }
     }
+    return new Wake(device);
   }
 
   destroy(): void {
@@ -93,29 +82,5 @@ export class Wake {
     op: AssociativeOp,
   ): Promise<WakeBuffer<T>> {
     return scan(this, input, op);
-  }
-
-  getOrCreatePipeline(
-    key: string,
-    build: () => {
-      code: string;
-      label: WakeLabel;
-    },
-  ): Promise<GPUComputePipeline> {
-    let cached = this.pipelineCache.get(key);
-    if (!cached) {
-      const { code, label } = build();
-      const module = this.device.createShaderModule({
-        label: label.with("resource", "shader").toString(),
-        code,
-      });
-      cached = this.device.createComputePipelineAsync({
-        label: label.with("resource", "pipeline").toString(),
-        layout: "auto",
-        compute: { module },
-      });
-      this.pipelineCache.set(key, cached);
-    }
-    return cached;
   }
 }

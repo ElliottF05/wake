@@ -7,6 +7,7 @@ import {
   wgslCombineFn,
   wgslDtypeOf,
 } from "./ops";
+import { getOrCreatePipeline } from "./pipeline";
 import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
@@ -24,7 +25,7 @@ export async function scan<T extends WakeSupportedArray>(
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
   const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
-    wake.getOrCreatePipeline(`scan:${phase}:${key}`, () => ({
+    getOrCreatePipeline(wake.device, `scan:${phase}:${key}`, () => ({
       code: buildCode(),
       label: label.with("phase", phase),
     }));

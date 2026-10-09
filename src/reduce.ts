@@ -7,6 +7,7 @@ import {
   wgslCombineFn,
   wgslDtypeOf,
 } from "./ops";
+import { getOrCreatePipeline } from "./pipeline";
 import type { Wake } from "./wake";
 import { WakeLabel } from "./wakeLabel";
 
@@ -26,7 +27,7 @@ export async function reduce<T extends WakeSupportedArray>(
   const dtype = wgslDtypeOf(input);
   const label = new WakeLabel().with("primitive", "reduce").with("op", op).with("dtype", dtype);
   const key = `reduce:${op}:${dtype}`;
-  const pipeline = await wake.getOrCreatePipeline(key, () => ({
+  const pipeline = await getOrCreatePipeline(wake.device, key, () => ({
     code: buildReduceShader(dtype, ASSOCIATIVE_OPS[op]),
     label: label,
   }));
