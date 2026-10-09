@@ -17,6 +17,9 @@ type ScratchLevel = {
 
 export function scanScratchBytes(n: number): number {
   const levels = calculateScratchLevels(n);
+  if (levels.length === 0) {
+    return 0;
+  }
   const last = levels[levels.length - 1];
   return last.byteOffset + last.byteSize;
 }
@@ -41,6 +44,10 @@ export function encodeScan(
   input: WakeBuffer<"u32">,
   scratch: GPUBuffer,
 ): void {
+  if (input.length === 0) {
+    return;
+  }
+
   const phase1Pipeline = getOrCreatePipeline(wake.device, "scan:phase1", phase1Code);
   const phase2Pipeline = getOrCreatePipeline(wake.device, "scan:phase2", phase2Code);
 
@@ -81,10 +88,12 @@ export function encodeScan(
   }
 }
 
-// TODO: handle edge cases where n = 0 or n = 1?
 function calculateScratchLevels(n: number): ScratchLevel[] {
-  const alignment = 256;
+  if (n === 1) {
+    return [{ byteOffset: 0, byteSize: 4, parentLength: 1 }];
+  }
 
+  const ALIGNMENT = 256;
   const levels: ScratchLevel[] = [];
   let byteOffset = 0;
 
@@ -94,7 +103,7 @@ function calculateScratchLevels(n: number): ScratchLevel[] {
     const byteSize = 4 * n;
     levels.push({ byteOffset, byteSize, parentLength });
     byteOffset += byteSize;
-    byteOffset = Math.ceil(byteOffset / alignment) * alignment;
+    byteOffset = Math.ceil(byteOffset / ALIGNMENT) * ALIGNMENT;
   }
 
   return levels;
