@@ -60,9 +60,9 @@ export class Wake {
     return WakeBuffer.empty(this, length, dtype);
   }
 
-  reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
-    return reduce(this, input, op);
-  }
+  // reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
+  //   return reduce(this, input, op);
+  // }
 
   scan(input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
     return scan(this, input);
