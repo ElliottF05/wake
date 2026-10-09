@@ -1,41 +1,79 @@
 import type { Wake } from "./wake";
 
-export type WakeSupportedArray = Float32Array | Uint32Array | Int32Array;
+interface WakeArrays {
+  f32: Float32Array;
+  u32: Uint32Array;
+}
 
-export type WakeSupportedArrayConstructor<T extends WakeSupportedArray> = {
-  new (buffer: ArrayBufferLike): T;
-  readonly BYTES_PER_ELEMENT: number;
-};
+export type WakeDtype = keyof WakeArrays;
+
+export type WakeArray = WakeArrays[WakeDtype];
 
 const BUFFER_USAGE = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
 
-export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
+export class WakeBuffer<D extends WakeDtype = "f32"> {
   private readonly wake: Wake;
   private readonly owned: boolean;
   private destroyed = false;
 
   readonly raw: GPUBuffer;
-  readonly view: WakeSupportedArrayConstructor<T>;
+  readonly dtype: D;
   readonly length: number;
-  readonly byteLength: number;
 
-  /**
-   * Low-level constructor, this shouldn't be used directly. Use {@link Wake.buffer} to create
-   * a buffer from a typed JS array, or {@link Wake.wrap} to wrap an existing GPUBuffer.
-   */
-  constructor(wake: Wake, raw: GPUBuffer, view: WakeSupportedArrayConstructor<T>, owned = false) {
+  private constructor(wake: Wake, raw: GPUBuffer, dtype: D, owned: boolean) {
     if ((raw.usage & BUFFER_USAGE) !== BUFFER_USAGE) {
       throw new Error("WakeBuffer requires a GPUBuffer with STORAGE, COPY_SRC, and COPY_DST usage");
     }
     this.wake = wake;
     this.owned = owned;
     this.raw = raw;
-    this.view = view;
-    this.byteLength = raw.size;
-    this.length = raw.size / view.BYTES_PER_ELEMENT;
+    this.dtype = dtype;
+    this.length = raw.size / 4;
   }
 
-  async read(): Promise<T> {
+  static from(wake: Wake, data: Float32Array): WakeBuffer<"f32">;
+  static from(wake: Wake, data: Uint32Array): WakeBuffer<"u32">;
+  static from(wake: Wake, data: WakeArray): WakeBuffer<WakeDtype>;
+  static from(wake: Wake, data: WakeArray): WakeBuffer<WakeDtype> {
+    let dtype: WakeDtype;
+    if (data instanceof Float32Array) {
+      dtype = "f32";
+    } else if (data instanceof Uint32Array) {
+      dtype = "u32";
+    } else {
+      throw new Error("WakeBuffer expects a Float32Array or Uint32Array");
+    }
+    const raw = wake.device.createBuffer({
+      label: "wake:storage",
+      size: data.byteLength,
+      usage: BUFFER_USAGE,
+      mappedAtCreation: true,
+    });
+    new Uint8Array(raw.getMappedRange()).set(
+      new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    );
+    raw.unmap();
+    return new WakeBuffer<WakeDtype>(wake, raw, dtype, true);
+  }
+
+  static empty<D extends WakeDtype>(wake: Wake, length: number, dtype: D): WakeBuffer<D> {
+    const raw = wake.device.createBuffer({
+      label: "wake:empty",
+      size: length * 4,
+      usage: BUFFER_USAGE,
+    });
+    return new WakeBuffer<D>(wake, raw, dtype, true);
+  }
+
+  static wrap<D extends WakeDtype>(wake: Wake, raw: GPUBuffer, dtype: D): WakeBuffer<D> {
+    return new WakeBuffer<D>(wake, raw, dtype, false);
+  }
+
+  get byteLength(): number {
+    return this.length * 4;
+  }
+
+  async read(): Promise<WakeArrays[D]> {
     if (this.destroyed) {
       throw new Error("attempted to read from a destroyed WakeBuffer");
     }
@@ -52,13 +90,14 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
       await staging.mapAsync(GPUMapMode.READ);
       const copy = staging.getMappedRange().slice(0);
       staging.unmap();
-      return new this.view(copy);
+      const data = this.dtype === "f32" ? new Float32Array(copy) : new Uint32Array(copy);
+      return data as WakeArrays[D];
     } finally {
       staging.destroy();
     }
   }
 
-  write(data: T): void {
+  write(data: WakeArrays[D]): void {
     if (this.destroyed) {
       throw new Error("attempted to write to a destroyed WakeBuffer");
     }
@@ -75,35 +114,4 @@ export class WakeBuffer<T extends WakeSupportedArray = Float32Array> {
     this.destroyed = true;
     if (this.owned) this.raw.destroy();
   }
-}
-
-export function emptyBuffer<T extends WakeSupportedArray>(
-  wake: Wake,
-  length: number,
-  view: WakeSupportedArrayConstructor<T>,
-): WakeBuffer<T> {
-  const raw = wake.device.createBuffer({
-    label: "wake:empty",
-    size: length * view.BYTES_PER_ELEMENT,
-    usage: BUFFER_USAGE,
-  });
-  return new WakeBuffer<T>(wake, raw, view, true);
-}
-
-export function fromArray<T extends WakeSupportedArray>(wake: Wake, data: T): WakeBuffer<T> {
-  if (
-    !(data instanceof Float32Array || data instanceof Uint32Array || data instanceof Int32Array)
-  ) {
-    throw new Error("WakeBuffer expects a Float32Array, Uint32Array, or Int32Array");
-  }
-  const raw = wake.device.createBuffer({
-    label: "wake:storage",
-    size: data.byteLength,
-    usage: BUFFER_USAGE,
-    mappedAtCreation: true,
-  });
-  const view = data.constructor as WakeSupportedArrayConstructor<T>;
-  new view(raw.getMappedRange()).set(data);
-  raw.unmap();
-  return new WakeBuffer<T>(wake, raw, view, true);
 }

@@ -1,13 +1,7 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
 // TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
-import {
-  emptyBuffer,
-  fromArray,
-  WakeBuffer,
-  type WakeSupportedArray,
-  type WakeSupportedArrayConstructor,
-} from "./buffer";
+import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
 import { scan } from "./scan";
@@ -52,35 +46,25 @@ export class Wake {
     this.device.destroy();
   }
 
-  buffer<T extends WakeSupportedArray>(data: T): WakeBuffer<T> {
-    return fromArray(this, data);
+  buffer(data: Float32Array): WakeBuffer<"f32">;
+  buffer(data: Uint32Array): WakeBuffer<"u32">;
+  buffer(data: WakeArray): WakeBuffer<WakeDtype> {
+    return WakeBuffer.from(this, data);
   }
 
-  wrap<T extends WakeSupportedArray>(
-    raw: GPUBuffer,
-    view: WakeSupportedArrayConstructor<T>,
-  ): WakeBuffer<T> {
-    return new WakeBuffer(this, raw, view);
+  wrap<D extends WakeDtype>(raw: GPUBuffer, dtype: D): WakeBuffer<D> {
+    return WakeBuffer.wrap(this, raw, dtype);
   }
 
-  empty<T extends WakeSupportedArray>(
-    length: number,
-    view: WakeSupportedArrayConstructor<T>,
-  ): WakeBuffer<T> {
-    return emptyBuffer(this, length, view);
+  empty<D extends WakeDtype>(length: number, dtype: D): WakeBuffer<D> {
+    return WakeBuffer.empty(this, length, dtype);
   }
 
-  reduce<T extends WakeSupportedArray>(
-    input: WakeBuffer<T>,
-    op: AssociativeOp,
-  ): Promise<WakeBuffer<T>> {
+  reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): Promise<WakeBuffer<D>> {
     return reduce(this, input, op);
   }
 
-  scan<T extends WakeSupportedArray>(
-    input: WakeBuffer<T>,
-    op: AssociativeOp,
-  ): Promise<WakeBuffer<T>> {
+  scan<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): Promise<WakeBuffer<D>> {
     return scan(this, input, op);
   }
 }
