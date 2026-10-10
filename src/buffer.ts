@@ -1,6 +1,6 @@
 import type { Wake } from "./wake";
 
-interface WakeArrays {
+export interface WakeArrays {
   f32: Float32Array;
   u32: Uint32Array;
 }

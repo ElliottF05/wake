@@ -120,6 +120,8 @@ function calculateNumWorkgroups(wake: Wake, n: number): number {
 }
 
 const phase1Code = `
+enable subgroups;
+
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
 const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
@@ -153,9 +155,6 @@ fn phase1(
     // invocation limit
     for (var b = 0u; b < blocks_per_sg; b++) {
         let curr_block = base_block + b;
-        if (curr_block >= num_blocks) {
-            break;
-        }
 
         // thread-local reduction over ELEMS_PER_THREAD elements, strided for
         // coalesced addressing
@@ -171,13 +170,15 @@ fn phase1(
         sum = subgroupAdd(sum);
 
         // write block total to block_sums
-        if (sid == 0u) {
+        if (sid == 0u && curr_block < num_blocks) {
             block_sums[curr_block] = sum;
         }
     }
 }`;
 
 const phase2Code = `
+enable subgroups;
+
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
 const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
@@ -209,12 +210,12 @@ fn phase2(
 
     for (var b = 0u; b < blocks_per_sg; b++) {
         let curr_block = base_block + b;
-        if (curr_block >= num_blocks) {
-            break;
-        }
 
         // incr begins as the previous block sum
-        var incr = block_sums[curr_block];
+        var incr = 0u;
+        if (curr_block < num_blocks) {
+            incr = block_sums[curr_block];
+        }
 
         // scan each portion of SUBGROUP_SIZE elements, incrementing the running incr
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
