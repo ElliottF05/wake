@@ -1,5 +1,5 @@
 import { Wake } from "../src/index";
-import { reportRows } from "./harness";
+import { reportResults } from "./harness";
 import { benchScanCpu, benchScanGpu, testScanCorrectness } from "./scanTests";
 
 const CORRECTNESS_SIZES = [
@@ -36,4 +36,4 @@ await testScanCorrectness(wake, CORRECTNESS_SIZES);
 const gpuRows = await benchScanGpu(wake, PERF_SIZES, TRIALS);
 const cpuRows = benchScanCpu(PERF_SIZES, TRIALS);
 
-reportRows([...gpuRows, ...cpuRows]);
+reportResults([...gpuRows, ...cpuRows]);

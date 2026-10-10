@@ -1,14 +1,12 @@
 import type { WakeArrays, WakeBuffer, WakeDtype } from "../src/buffer";
 import type { Wake } from "../src/index";
 
-export type Row = {
+export type BenchResult = {
   label: string;
   n: number;
-  meanMs: number;
-  minMs: number;
-  kernelMeanMs?: number;
-  kernelMinMs?: number;
-  gbps?: number;
+  bytesPerElement?: number;
+  wallMs: number[];
+  kernelMs: number[];
 };
 
 type CorrectnessCase<D extends WakeDtype> = {
@@ -95,8 +93,8 @@ export async function benchGpu<D extends WakeDtype>(
   sizes: number[],
   trials: number,
   bench: GpuBench<D>,
-): Promise<Row[]> {
-  const rows: Row[] = [];
+): Promise<BenchResult[]> {
+  const results: BenchResult[] = [];
 
   for (const n of sizes) {
     const data = bench.makeInput(n);
@@ -123,27 +121,24 @@ export async function benchGpu<D extends WakeDtype>(
     }
     input.destroy();
 
-    const kernelMeanMs = mean(kernelMs);
-    rows.push({
+    results.push({
       label: bench.label,
       n,
-      meanMs: round3(mean(wallMs)),
-      minMs: round3(Math.min(...wallMs)),
-      kernelMeanMs: round3(kernelMeanMs),
-      kernelMinMs: round3(Math.min(...kernelMs)),
-      gbps: gbps(bench.bytesPerElement, n, kernelMeanMs),
+      bytesPerElement: bench.bytesPerElement,
+      wallMs,
+      kernelMs,
     });
   }
 
-  return rows;
+  return results;
 }
 
 export function benchCpu<D extends WakeDtype>(
   sizes: number[],
   trials: number,
   bench: CpuBench<D>,
-): Row[] {
-  const rows: Row[] = [];
+): BenchResult[] {
+  const results: BenchResult[] = [];
   let sink: unknown;
 
   for (const n of sizes) {
@@ -158,36 +153,49 @@ export function benchCpu<D extends WakeDtype>(
       wallMs.push(performance.now() - start);
     }
 
-    const meanMs = mean(wallMs);
-    rows.push({
+    results.push({
       label: bench.label,
       n,
-      meanMs: round3(meanMs),
-      minMs: round3(Math.min(...wallMs)),
-      gbps: gbps(bench.bytesPerElement, n, meanMs),
+      bytesPerElement: bench.bytesPerElement,
+      wallMs,
+      kernelMs: [],
     });
   }
 
   // keeps the runs from being optimized away
   console.debug(`${bench.label}: sink`, sink);
-  return rows;
+  return results;
 }
 
-// `gbps` is computed from kernel time for GPU rows and wall time for CPU rows.
-export function reportRows(rows: Row[]): void {
-  console.table(rows);
-
-  const header = "label,n,meanMs,minMs,kernelMeanMs,kernelMinMs,gbps";
-  const csv = rows.map((row) =>
-    [
-      row.label,
-      row.n,
-      row.meanMs,
-      row.minMs,
-      row.kernelMeanMs ?? "",
-      row.kernelMinMs ?? "",
-      row.gbps ?? "",
-    ].join(","),
+export function reportResults(results: BenchResult[]): void {
+  console.table(
+    results.map((result) => {
+      const hasKernel = result.kernelMs.length > 0;
+      const computeMs = hasKernel ? mean(result.kernelMs) : mean(result.wallMs);
+      return {
+        label: result.label,
+        n: result.n,
+        meanMs: round3(mean(result.wallMs)),
+        minMs: round3(Math.min(...result.wallMs)),
+        kernelMeanMs: hasKernel ? round3(mean(result.kernelMs)) : undefined,
+        kernelMinMs: hasKernel ? round3(Math.min(...result.kernelMs)) : undefined,
+        gbps: gbps(result.bytesPerElement, result.n, computeMs),
+      };
+    }),
   );
-  console.log([header, ...csv].join("\n"));
+
+  const header = "label,n,trial,wallMs,kernelMs,bytesPerElement";
+  const rows = results.flatMap((result) =>
+    result.wallMs.map((wallMs, trial) =>
+      [
+        result.label,
+        result.n,
+        trial,
+        wallMs,
+        result.kernelMs[trial] ?? "",
+        result.bytesPerElement ?? "",
+      ].join(","),
+    ),
+  );
+  console.log([header, ...rows].join("\n"));
 }

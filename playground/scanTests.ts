@@ -1,12 +1,11 @@
 import type { Wake } from "../src/index";
-import { benchCpu, benchGpu, type Row, testCorrectness } from "./harness";
+import { type BenchResult, benchCpu, benchGpu, testCorrectness } from "./harness";
 import { randomArray } from "./inputs";
 
 // phase 1 reads n elements; phase 2 reads and writes n elements
-const BYTES_PER_ELEMENT = 12;
+const BYTES_PER_ELEMENT = 4 * 3;
 
-// u32 addition wraps mod 2^32 in WGSL, so wrapping here matches exactly, and wrapping
-// addition is associative so the kernel's summation order does not matter.
+// handles wrapping
 export function jsScan(input: Uint32Array): Uint32Array {
   const output = new Uint32Array(input.length);
   let acc = 0;
@@ -27,7 +26,7 @@ export function testScanCorrectness(wake: Wake, sizes: number[]): Promise<void> 
   });
 }
 
-export function benchScanGpu(wake: Wake, sizes: number[], trials: number): Promise<Row[]> {
+export function benchScanGpu(wake: Wake, sizes: number[], trials: number): Promise<BenchResult[]> {
   return benchGpu<"u32">(wake, sizes, trials, {
     label: "wake:scan",
     bytesPerElement: BYTES_PER_ELEMENT,
@@ -37,7 +36,7 @@ export function benchScanGpu(wake: Wake, sizes: number[], trials: number): Promi
   });
 }
 
-export function benchScanCpu(sizes: number[], trials: number): Row[] {
+export function benchScanCpu(sizes: number[], trials: number): BenchResult[] {
   return benchCpu<"u32">(sizes, trials, {
     label: "js:scan",
     bytesPerElement: BYTES_PER_ELEMENT,
