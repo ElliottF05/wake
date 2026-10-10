@@ -9,6 +9,7 @@ const ELEMS_PER_THREAD = 32;
 
 const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
+const ELEMS_PER_WORKGROUP = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
 type ScratchLevel = {
   byteOffset: number;
@@ -114,7 +115,7 @@ function calculateScratchLevels(n: number): ScratchLevel[] {
 }
 
 function calculateNumWorkgroups(wake: Wake, n: number): number {
-  const targetWorkgroups = Math.ceil(n / ELEMS_PER_BLOCK);
+  const targetWorkgroups = Math.ceil(n / ELEMS_PER_WORKGROUP);
   const maxWorkgroups = wake.device.limits.maxComputeWorkgroupsPerDimension;
   return Math.min(targetWorkgroups, maxWorkgroups);
 }
