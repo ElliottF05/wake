@@ -1,5 +1,6 @@
 import type { WakeBuffer } from "./buffer";
 import { getOrCreatePipeline } from "./pipeline";
+import { timestampWrites } from "./timing";
 import type { Wake } from "./wake";
 
 const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
@@ -26,7 +27,10 @@ export function scanScratchBytes(n: number): number {
 
 export function scan(wake: Wake, input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
   const encoder = wake.device.createCommandEncoder({ label: "wake:scan:encoder" });
-  const pass = encoder.beginComputePass({ label: "wake:scan:pass" });
+  const pass = encoder.beginComputePass({
+    label: "wake:scan:pass",
+    timestampWrites: timestampWrites(wake.device),
+  });
   const scratch = wake.device.createBuffer({
     size: scanScratchBytes(input.length),
     usage: GPUBufferUsage.STORAGE,

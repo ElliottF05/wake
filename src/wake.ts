@@ -5,6 +5,7 @@ import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
 import type { AssociativeOp } from "./ops";
 import { reduce } from "./reduce";
 import { encodeScan, scan } from "./scan";
+import { readLastTimingMs } from "./timing";
 
 export class Wake {
   readonly device: GPUDevice;
@@ -68,11 +69,11 @@ export class Wake {
     return scan(this, input);
   }
 
-  encodeScan(
-    pass: GPUComputePassEncoder,
-    input: WakeBuffer<"u32">,
-    scratch: GPUBuffer,
-  ): void {
+  encodeScan(pass: GPUComputePassEncoder, input: WakeBuffer<"u32">, scratch: GPUBuffer): void {
     encodeScan(this, pass, input, scratch);
+  }
+
+  getLastTimingMs(): Promise<number> {
+    return readLastTimingMs(this.device);
   }
 }
