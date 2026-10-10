@@ -2,8 +2,6 @@
 // TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
-import type { AssociativeOp } from "./ops";
-import { reduce } from "./reduce";
 import { encodeScan, scan } from "./scan";
 import { readLastTimingMs } from "./timing";
 
