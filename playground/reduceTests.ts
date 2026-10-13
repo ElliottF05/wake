@@ -1,5 +1,5 @@
 import type { Wake } from "../src/index";
-import { reduce, type WakeReduceOp } from "../src/reduce";
+import type { WakeReduceOp } from "../src/reduce";
 import { testCorrectness } from "./harness";
 import { randomArray } from "./inputs";
 
@@ -55,24 +55,21 @@ function f32SumTolerance(input: Float32Array): number {
 }
 
 export async function testReduceCorrectness(wake: Wake, sizes: number[]): Promise<void> {
+  const nonEmptySizes = sizes.filter((n) => n > 0);
+
   for (const op of OPS) {
-    await testCorrectness<"u32">(wake, sizes, {
+    await testCorrectness<"u32">(wake, op === "sum" ? sizes : nonEmptySizes, {
       label: `reduce:${op}:u32`,
-      // min/max of an empty input throws, by design
-      sizes: (n) => n > 0 || op === "sum",
       makeInput: (n) => randomArray("u32", n),
-      toBuffer: (w, data) => w.buffer(data),
       run: (input) => wake.reduce(input, op),
       reference: (input) => jsReduceU32(input, op),
     });
   }
 
   for (const op of OPS) {
-    await testCorrectness<"f32">(wake, sizes, {
+    await testCorrectness<"f32">(wake, op === "sum" ? sizes : nonEmptySizes, {
       label: `reduce:${op}:f32`,
-      sizes: (n) => n > 0 || op === "sum",
       makeInput: (n) => randomArray("f32", n),
-      toBuffer: (w, data) => w.buffer(data),
       run: (input) => wake.reduce(input, op),
       reference: (input) => jsReduceF32(input, op),
       tolerance: op === "sum" ? f32SumTolerance : undefined,

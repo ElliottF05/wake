@@ -48,6 +48,7 @@ export class Wake {
 
   buffer(data: Float32Array): WakeBuffer<"f32">;
   buffer(data: Uint32Array): WakeBuffer<"u32">;
+  buffer(data: WakeArray): WakeBuffer<WakeDtype>;
   buffer(data: WakeArray): WakeBuffer<WakeDtype> {
     return WakeBuffer.from(this, data);
   }

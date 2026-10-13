@@ -22,7 +22,6 @@ export function testScanCorrectness(wake: Wake, sizes: number[]): Promise<void> 
   return testCorrectness<"u32">(wake, sizes, {
     label: "scan",
     makeInput: (n) => randomArray("u32", n),
-    toBuffer: (w, data) => w.buffer(data),
     run: (input) => wake.scan(input),
     reference: jsScan,
   });
@@ -33,7 +32,6 @@ export function benchScanGpu(wake: Wake, sizes: number[], trials: number): Promi
     label: "wake:scan",
     bytesPerElement: GPU_BYTES_PER_ELEMENT,
     makeInput: (n) => randomArray("u32", n),
-    toBuffer: (w, data) => w.buffer(data),
     run: (input) => wake.scan(input),
   });
 }
