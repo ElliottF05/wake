@@ -11,59 +11,59 @@ const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
 const ELEMS_PER_WORKGROUP = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
-export function reduce<T extends WakeDtype>(wake: Wake, input: WakeBuffer<T>): WakeBuffer<T> {
+export function reduce<D extends WakeDtype>(wake: Wake, input: WakeBuffer<D>): WakeBuffer<D> {
+  const n = input.length;
+  const output = wake.empty(1, input.dtype);
+  if (n === 0) {
+    return output;
+  }
+
+  const scratch = [
+    Math.ceil(n / ELEMS_PER_BLOCK),
+    Math.ceil(Math.ceil(n / ELEMS_PER_BLOCK) / ELEMS_PER_BLOCK),
+  ].map((length, i) =>
+    wake.device.createBuffer({
+      label: `wake:reduce:scratch${i}`,
+      size: 4 * length,
+      usage: GPUBufferUsage.STORAGE,
+    }),
+  );
+
   const encoder = wake.device.createCommandEncoder({ label: "wake:reduce:encoder" });
   const pass = encoder.beginComputePass({
     label: "wake:reduce:pass",
     timestampWrites: timestampWrites(wake.device),
   });
 
-  const scratchALength = Math.ceil(input.length / ELEMS_PER_BLOCK);
-  const scratchBLength = Math.ceil(scratchALength / ELEMS_PER_BLOCK);
-
-  const scratchA = wake.device.createBuffer({
-    label: "wake:reduce:scratchA",
-    size: 4 * scratchALength,
-    usage: GPUBufferUsage.STORAGE,
-  });
-  const scratchB = wake.device.createBuffer({
-    label: "wake:reduce:scratchB",
-    size: 4 * scratchBLength,
-    usage: GPUBufferUsage.STORAGE,
-  });
-  const scratch = [scratchA, scratchB];
-  const output = wake.empty(1, input.dtype);
-
   const pipeline = getOrCreatePipeline(wake.device, "reduce", code);
   pass.setPipeline(pipeline);
 
-  let length = input.length;
-  let parity = 0;
-  while (length > 1) {
+  let length = n;
+  let level = 0;
+  do {
     const isLast = length <= ELEMS_PER_BLOCK;
-    const parent = scratch[parity];
-    const child = isLast ? output.raw : scratch[1 - parity];
+    const src = level === 0 ? input.raw : scratch[(level - 1) % 2];
+    const dst = isLast ? output.raw : scratch[level % 2];
 
     const bindGroup = wake.device.createBindGroup({
-      label: `wake:reduce:parity${parity}:isLast${isLast}:bindGroup`,
+      label: `wake:reduce:level${level}:bindGroup`,
       layout: pipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: parent },
-        { binding: 1, resource: child },
+        { binding: 0, resource: { buffer: src } },
+        { binding: 1, resource: { buffer: dst } },
       ],
     });
     pass.setBindGroup(0, bindGroup);
-    
-    pass.dispatchWorkgroups(calculateNumWorkgroups(wake, parent.size / 4));
+    pass.dispatchWorkgroups(calculateNumWorkgroups(wake, length));
 
-    parity = 1 - parity;
     length = Math.ceil(length / ELEMS_PER_BLOCK);
-  }
+    level++;
+  } while (length > 1);
 
   pass.end();
   wake.device.queue.submit([encoder.finish()]);
-  for (const scratchBuf of scratch) {
-    scratchBuf.destroy();
+  for (const buffer of scratch) {
+    buffer.destroy();
   }
   return output;
 }
@@ -91,7 +91,7 @@ fn div_ceil(a: u32, b: u32) -> u32 {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn phase1(
+fn reduce(
     @builtin(global_invocation_id) gid: vec3<u32>,
     @builtin(local_invocation_id) lid: vec3<u32>,
     @builtin(workgroup_id) wid: vec3<u32>,
