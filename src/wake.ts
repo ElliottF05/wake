@@ -2,6 +2,7 @@
 // TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
+import { reduce, type WakeReduceOp } from "./reduce";
 import { encodeScan, scan } from "./scan";
 import { readLastTimingMs } from "./timing";
 
@@ -59,9 +60,9 @@ export class Wake {
     return WakeBuffer.empty(this, length, dtype);
   }
 
-  // reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: AssociativeOp): WakeBuffer<D> {
-  //   return reduce(this, input, op);
-  // }
+  reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: WakeReduceOp): WakeBuffer<D> {
+    return reduce(this, input, op);
+  }
 
   scan(input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
     return scan(this, input);

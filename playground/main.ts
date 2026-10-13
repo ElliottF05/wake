@@ -1,5 +1,6 @@
 import { Wake } from "../src/index";
 import { reportResults } from "./harness";
+import { testReduceCorrectness } from "./reduceTests";
 import { benchScanCpu, benchScanGpu, testScanCorrectness } from "./scanTests";
 
 const CORRECTNESS_SIZES = [
@@ -32,8 +33,9 @@ if (!crossOriginIsolated) {
 const wake = await Wake.create();
 
 await testScanCorrectness(wake, CORRECTNESS_SIZES);
+await testReduceCorrectness(wake, CORRECTNESS_SIZES);
 
-const gpuRows = await benchScanGpu(wake, PERF_SIZES, TRIALS);
-const cpuRows = benchScanCpu(PERF_SIZES, TRIALS);
+// const gpuRows = await benchScanGpu(wake, PERF_SIZES, TRIALS);
+// const cpuRows = benchScanCpu(PERF_SIZES, TRIALS);
 
-reportResults([...gpuRows, ...cpuRows]);
+// reportResults([...gpuRows, ...cpuRows]);

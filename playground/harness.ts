@@ -11,10 +11,12 @@ export type BenchResult = {
 
 type CorrectnessCase<D extends WakeDtype> = {
   label: string;
+  sizes?: (n: number) => boolean;
   makeInput: (n: number) => WakeArrays[D];
   toBuffer: (wake: Wake, data: WakeArrays[D]) => WakeBuffer<D>;
   run: (input: WakeBuffer<D>) => WakeBuffer<D>;
   reference: (input: WakeArrays[D]) => WakeArrays[D];
+  tolerance?: (input: WakeArrays[D]) => number;
 };
 
 type GpuBench<D extends WakeDtype> = {
@@ -55,16 +57,21 @@ export async function testCorrectness<D extends WakeDtype>(
   console.log(`${test.label}: correctness`);
 
   for (const n of sizes) {
+    if (test.sizes && !test.sizes(n)) {
+      continue;
+    }
+
     const data = test.makeInput(n);
     const expected = test.reference(data);
+    const tolerance = test.tolerance ? test.tolerance(data) : 0;
     const input = test.toBuffer(wake, data);
     const output = test.run(input);
     const actual = await output.read();
 
     let failures = 0;
     let firstFailure = -1;
-    for (let i = 0; i < n; i++) {
-      if (actual[i] !== expected[i]) {
+    for (let i = 0; i < expected.length; i++) {
+      if (Math.abs(actual[i] - expected[i]) > tolerance) {
         failures++;
         if (firstFailure === -1) {
           firstFailure = i;
