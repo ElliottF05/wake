@@ -11,8 +11,17 @@ const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
 const ELEMS_PER_WORKGROUP = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
-export function reduce<D extends WakeDtype>(wake: Wake, input: WakeBuffer<D>): WakeBuffer<D> {
+export type WakeReduceOp = "sum" | "min" | "max";
+
+export function reduce<D extends WakeDtype>(
+  wake: Wake,
+  input: WakeBuffer<D>,
+  op: WakeReduceOp,
+): WakeBuffer<D> {
   const n = input.length;
+  if (n === 0 && op !== "sum") {
+    throw new Error(`cannot take ${op} of an empty input`);
+  }
   const output = wake.empty(1, input.dtype);
   if (n === 0) {
     return output;
@@ -35,7 +44,11 @@ export function reduce<D extends WakeDtype>(wake: Wake, input: WakeBuffer<D>): W
     timestampWrites: timestampWrites(wake.device),
   });
 
-  const pipeline = getOrCreatePipeline(wake.device, "reduce", code);
+  const pipeline = getOrCreatePipeline(
+    wake.device,
+    `reduce:${op}:${input.dtype}`,
+    buildShaderCode(op, input.dtype),
+  );
   pass.setPipeline(pipeline);
 
   let length = n;
@@ -74,7 +87,34 @@ function calculateNumWorkgroups(wake: Wake, n: number): number {
   return Math.min(targetWorkgroups, maxWorkgroups);
 }
 
-const code = `
+const REDUCE_OPS: Record<
+  WakeReduceOp,
+  {
+    combine: string;
+    subgroup: string;
+    identity: Record<WakeDtype, string>;
+  }
+> = {
+  sum: {
+    combine: "a + b",
+    subgroup: "subgroupAdd",
+    identity: { u32: "0u", f32: "0.0f" },
+  },
+  min: {
+    combine: "min(a, b)",
+    subgroup: "subgroupMin",
+    identity: { u32: "0xffffffffu", f32: "0x1.fffffep+127f" }, // f32 max
+  },
+  max: {
+    combine: "max(a, b)",
+    subgroup: "subgroupMax",
+    identity: { u32: "0u", f32: "-0x1.fffffep+127f" }, // f32 min
+  },
+};
+
+function buildShaderCode(op: WakeReduceOp, dtype: WakeDtype): string {
+  const { combine, subgroup, identity } = REDUCE_OPS[op];
+  return `
 enable subgroups;
 
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
@@ -83,11 +123,15 @@ const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
 const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
 const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
 
-@group(0u) @binding(0u) var<storage, read_write> src: array<u32>;
-@group(0u) @binding(1u) var<storage, read_write> dst: array<u32>;
+@group(0u) @binding(0u) var<storage, read_write> src: array<${dtype}>;
+@group(0u) @binding(1u) var<storage, read_write> dst: array<${dtype}>;
 
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
+}
+
+fn combine(a: ${dtype}, b: ${dtype}) -> ${dtype} {
+    return ${combine};
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -113,16 +157,16 @@ fn reduce(
 
         // thread-local reduction over ELEMS_PER_THREAD elements, strided for
         // coalesced addressing
-        var acc = 0u;
+        var acc = ${identity[dtype]};
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
             let idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
             if (idx < src_len) {
-                acc += src[idx];
+                acc = combine(acc, src[idx]);
             }
         }
 
         // subgroup reduction
-        acc = subgroupAdd(acc);
+        acc = ${subgroup}(acc);
 
         // write this block's total to dst
         if (sid == 0u && curr_block < num_blocks) {
@@ -130,3 +174,4 @@ fn reduce(
         }
     }
 }`;
+}
