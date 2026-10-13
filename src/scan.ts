@@ -71,17 +71,15 @@ export function encodeScan(
     };
 
     pass.setPipeline(pipeline);
-    pass.setBindGroup(
-      0,
-      wake.device.createBindGroup({
-        label: `wake:scan:${phase}:level${i}:bindGroup`,
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: parent },
-          { binding: 1, resource: child },
-        ],
-      }),
-    );
+    const bindGroup = wake.device.createBindGroup({
+      label: `wake:scan:${phase}:level${i}:bindGroup`,
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: parent },
+        { binding: 1, resource: child },
+      ],
+    });
+    pass.setBindGroup(0, bindGroup);
     pass.dispatchWorkgroups(calculateNumWorkgroups(wake, level.parentLength));
   };
 
