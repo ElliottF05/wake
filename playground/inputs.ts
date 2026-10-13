@@ -1,6 +1,5 @@
 import type { WakeArrays, WakeDtype } from "../src/buffer";
 
-// Seeded so that a failing size reproduces on the next run.
 function lcg(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
