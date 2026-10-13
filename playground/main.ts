@@ -33,13 +33,13 @@ if (!crossOriginIsolated) {
 const wake = await Wake.create();
 
 // Correctness tests
-// await testReduceCorrectness(wake, CORRECTNESS_SIZES);
-// await testScanCorrectness(wake, CORRECTNESS_SIZES);
+await testReduceCorrectness(wake, CORRECTNESS_SIZES);
+await testScanCorrectness(wake, CORRECTNESS_SIZES);
 
 // Performance tests
 const rows: BenchResult[] = [
-  ...(await benchReduceGpu(wake, PERF_SIZES, TRIALS)),
-  ...benchReduceCpu(PERF_SIZES, TRIALS),
+  // ...(await benchReduceGpu(wake, PERF_SIZES, TRIALS)),
+  // ...benchReduceCpu(PERF_SIZES, TRIALS),
   // ...(await benchScanGpu(wake, PERF_SIZES, TRIALS)),
   // ...benchScanCpu(PERF_SIZES, TRIALS),
 ];

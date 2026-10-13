@@ -91,29 +91,29 @@ const REDUCE_OPS: Record<
   WakeReduceOp,
   {
     combine: string;
-    subgroup: string;
+    subgroupReduce: string;
     identity: Record<WakeDtype, string>;
   }
 > = {
   sum: {
     combine: "a + b",
-    subgroup: "subgroupAdd",
+    subgroupReduce: "subgroupAdd",
     identity: { u32: "0u", f32: "0.0f" },
   },
   min: {
     combine: "min(a, b)",
-    subgroup: "subgroupMin",
+    subgroupReduce: "subgroupMin",
     identity: { u32: "0xffffffffu", f32: "0x1.fffffep+127f" }, // f32 max
   },
   max: {
     combine: "max(a, b)",
-    subgroup: "subgroupMax",
+    subgroupReduce: "subgroupMax",
     identity: { u32: "0u", f32: "-0x1.fffffep+127f" }, // f32 min
   },
 };
 
 function buildShaderCode(op: WakeReduceOp, dtype: WakeDtype): string {
-  const { combine, subgroup, identity } = REDUCE_OPS[op];
+  const { combine, subgroupReduce, identity } = REDUCE_OPS[op];
   return `
 enable subgroups;
 
@@ -166,7 +166,7 @@ fn reduce(
         }
 
         // subgroup reduction
-        acc = ${subgroup}(acc);
+        acc = ${subgroupReduce}(acc);
 
         // write this block's total to dst
         if (sid == 0u && curr_block < num_blocks) {
