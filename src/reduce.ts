@@ -83,8 +83,8 @@ const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
 const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
 const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
 
-@group(0u) @binding(0u) var<storage, read_write> data: array<u32>;
-@group(0u) @binding(1u) var<storage, read_write> block_sums: array<u32>;
+@group(0u) @binding(0u) var<storage, read_write> src: array<u32>;
+@group(0u) @binding(1u) var<storage, read_write> dst: array<u32>;
 
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
@@ -98,8 +98,8 @@ fn reduce(
     @builtin(num_workgroups) num_wg: vec3<u32>,
     @builtin(subgroup_invocation_id) sid: u32,
 ) {
-    let data_len = arrayLength(&data);
-    let num_blocks = div_ceil(data_len, ELEMS_PER_BLOCK);
+    let src_len = arrayLength(&src);
+    let num_blocks = div_ceil(src_len, ELEMS_PER_BLOCK);
     let num_sg = num_wg.x * SUBGROUPS_PER_WORKGROUP;
     let blocks_per_sg = div_ceil(num_blocks, num_sg);
     let sg = lid.x / SUBGROUP_SIZE;
@@ -113,20 +113,20 @@ fn reduce(
 
         // thread-local reduction over ELEMS_PER_THREAD elements, strided for
         // coalesced addressing
-        var sum = 0u;
+        var acc = 0u;
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
             let idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
-            if (idx < data_len) {
-                sum += data[idx];
+            if (idx < src_len) {
+                acc += src[idx];
             }
         }
 
         // subgroup reduction
-        sum = subgroupAdd(sum);
+        acc = subgroupAdd(acc);
 
-        // write block total to block_sums
+        // write this block's total to dst
         if (sid == 0u && curr_block < num_blocks) {
-            block_sums[curr_block] = sum;
+            dst[curr_block] = acc;
         }
     }
 }`;
