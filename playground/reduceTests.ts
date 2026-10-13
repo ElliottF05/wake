@@ -1,9 +1,13 @@
 import type { Wake } from "../src/index";
 import type { WakeReduceOp } from "../src/reduce";
-import { testCorrectness } from "./harness";
+import { type BenchResult, benchCpu, benchGpu, testCorrectness } from "./harness";
 import { randomArray } from "./inputs";
 
 const OPS: WakeReduceOp[] = ["sum", "min", "max"];
+
+// one pass: reads n elements, writes a single value. the same on both sides, so GB/s is
+// directly comparable between them
+const BYTES_PER_ELEMENT = 4;
 
 const F32_EPS = 2 ** -24;
 const TOLERANCE_SLACK = 16;
@@ -75,4 +79,26 @@ export async function testReduceCorrectness(wake: Wake, sizes: number[]): Promis
       tolerance: op === "sum" ? f32SumTolerance : undefined,
     });
   }
+}
+
+export function benchReduceGpu(
+  wake: Wake,
+  sizes: number[],
+  trials: number,
+): Promise<BenchResult[]> {
+  return benchGpu<"f32">(wake, sizes, trials, {
+    label: "wake:reduce",
+    bytesPerElement: BYTES_PER_ELEMENT,
+    makeInput: (n) => randomArray("f32", n),
+    run: (input) => wake.reduce(input, "sum"),
+  });
+}
+
+export function benchReduceCpu(sizes: number[], trials: number): BenchResult[] {
+  return benchCpu<"f32">(sizes, trials, {
+    label: "js:reduce",
+    bytesPerElement: BYTES_PER_ELEMENT,
+    makeInput: (n) => randomArray("f32", n),
+    run: (input) => jsReduceF32(input, "sum"),
+  });
 }
