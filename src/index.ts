@@ -1,3 +1,3 @@
 export { WakeBuffer } from "./buffer";
-export type { WakeOptions } from "./wake";
+export { scanScratchBytes } from "./scan";
 export { Wake } from "./wake";

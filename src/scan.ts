@@ -1,270 +1,235 @@
-import type { WakeBuffer, WakeSupportedArray } from "./buffer";
-import {
-  ASSOCIATIVE_OPS,
-  type AssociativeOp,
-  type AssociativeOpWgsl,
-  type WgslDtype,
-  wgslCombineFn,
-  wgslDtypeOf,
-} from "./ops";
-import { MAX_NUM_WORKGROUPS, type Wake } from "./wake";
-import { WakeLabel } from "./wakeLabel";
+import type { WakeBuffer } from "./buffer";
+import { getOrCreatePipeline } from "./pipeline";
+import { timestampWrites } from "./timing";
+import type { Wake } from "./wake";
 
-const WORKGROUP_SIZE = 256;
+const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
+const WORKGROUP_SIZE = 256; // must be a multiple of SUBGROUP_SIZE (32)
+const ELEMS_PER_THREAD = 32;
 
-export async function scan<T extends WakeSupportedArray>(
-  wake: Wake,
-  input: WakeBuffer<T>,
-  op: AssociativeOp,
-): Promise<WakeBuffer<T>> {
-  if (input.length === 0) {
-    return wake.empty(0, input.view);
+const SUBGROUPS_PER_WORKGROUP = WORKGROUP_SIZE / SUBGROUP_SIZE;
+const ELEMS_PER_BLOCK = SUBGROUP_SIZE * ELEMS_PER_THREAD;
+const ELEMS_PER_WORKGROUP = WORKGROUP_SIZE * ELEMS_PER_THREAD;
+
+type ScratchLevel = {
+  byteOffset: number;
+  byteSize: number;
+  parentLength: number;
+};
+
+export function scanScratchBytes(n: number): number {
+  const levels = calculateScratchLevels(n);
+  if (levels.length === 0) {
+    return 0;
   }
-  const K = 8;
-  const dtype = wgslDtypeOf(input);
-  const label = new WakeLabel().with("primitive", "scan").with("op", op).with("dtype", dtype);
-  const pipelineFor = (phase: string, key: string, buildCode: () => string) =>
-    wake.getOrCreatePipeline(`scan:${phase}:${key}`, () => ({
-      code: buildCode(),
-      label: label.with("phase", phase),
-    }));
-  const phase1Pipeline = await pipelineFor("phase1", `${op}:${dtype}`, () =>
-    buildPhase1Shader(dtype, ASSOCIATIVE_OPS[op], K),
-  );
-  const phase2Pipeline = await pipelineFor("phase2", `${op}:${dtype}`, () =>
-    buildPhase2Shader(dtype, ASSOCIATIVE_OPS[op]),
-  );
-  const phase3Pipeline = await pipelineFor("phase3", `${op}:${dtype}`, () =>
-    buildPhase3Shader(dtype, ASSOCIATIVE_OPS[op], K),
-  );
-  const n = input.length;
-  const numWorkgroups = Math.min(Math.ceil(n / (K * WORKGROUP_SIZE)), MAX_NUM_WORKGROUPS);
-  const scratch = wake.empty(numWorkgroups, input.view);
-  const output = wake.empty(n, input.view);
-  const bindGroup1 = wake.device.createBindGroup({
-    label: label.with("phase", "phase1").with("resource", "bindGroup").toString(),
-    layout: phase1Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: input.raw } },
-      { binding: 1, resource: { buffer: scratch.raw } },
-    ],
+  const last = levels[levels.length - 1];
+  return last.byteOffset + last.byteSize;
+}
+
+export function scan(wake: Wake, input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
+  const encoder = wake.device.createCommandEncoder({ label: "wake:scan:encoder" });
+  const pass = encoder.beginComputePass({
+    label: "wake:scan:pass",
+    timestampWrites: timestampWrites(wake.device),
   });
-  const bindGroup2 = wake.device.createBindGroup({
-    label: label.with("phase", "phase2").with("resource", "bindGroup").toString(),
-    layout: phase2Pipeline.getBindGroupLayout(0),
-    entries: [{ binding: 0, resource: { buffer: scratch.raw } }],
+  const scratch = wake.device.createBuffer({
+    size: scanScratchBytes(input.length),
+    usage: GPUBufferUsage.STORAGE,
   });
-  const bindGroup3 = wake.device.createBindGroup({
-    label: label.with("phase", "phase3").with("resource", "bindGroup").toString(),
-    layout: phase3Pipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: input.raw } },
-      { binding: 1, resource: { buffer: scratch.raw } },
-      { binding: 2, resource: { buffer: output.raw } },
-    ],
-  });
-  const encoder = wake.device.createCommandEncoder({
-    label: label.with("resource", "encoder").toString(),
-  });
-  const computePass = encoder.beginComputePass({
-    label: label.with("resource", "computePass").toString(),
-  });
-  computePass.setPipeline(phase1Pipeline);
-  computePass.setBindGroup(0, bindGroup1);
-  computePass.dispatchWorkgroups(numWorkgroups);
-  computePass.setPipeline(phase2Pipeline);
-  computePass.setBindGroup(0, bindGroup2);
-  computePass.dispatchWorkgroups(1);
-  computePass.setPipeline(phase3Pipeline);
-  computePass.setBindGroup(0, bindGroup3);
-  computePass.dispatchWorkgroups(numWorkgroups);
-  computePass.end();
+  encodeScan(wake, pass, input, scratch);
+  pass.end();
   wake.device.queue.submit([encoder.finish()]);
   scratch.destroy();
-  return output;
+  return input;
 }
 
-// TODO: make these shaders faster based on data from running on 3080
-// TODO: extract consts out to the top of each shader?
-// Builds `num_workgroups` partial reductions
-function buildPhase1Shader(dtype: WgslDtype, op: AssociativeOpWgsl, K: number): string {
-  return `
-const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
-const K = ${K}u;
-const IDENTITY = ${op.identity[dtype]};
-
-@group(0) @binding(0) var<storage, read> input: array<${dtype}>;
-@group(0) @binding(1) var<storage, read_write> scratch: array<${dtype}>;
-
-var<workgroup> partials: array<${dtype}, WORKGROUP_SIZE>;
-
-${wgslCombineFn(dtype, op)}
-
-@compute @workgroup_size(WORKGROUP_SIZE)
-fn main(
-  @builtin(global_invocation_id) gid: vec3u,
-  @builtin(local_invocation_id) lid: vec3u,
-  @builtin(workgroup_id) wid: vec3u,
-  @builtin(num_workgroups) num_workgroups: vec3u
-) {
-  let n = arrayLength(&input);
-  let elems_per_tile = K * WORKGROUP_SIZE;
-  let num_tiles = (n + elems_per_tile - 1u) / elems_per_tile;
-  let tiles_per_wg = (num_tiles + num_workgroups.x - 1u) / num_workgroups.x;
-  let elems_per_wg = tiles_per_wg * elems_per_tile;
-
-  let start = wid.x * elems_per_wg;
-  let end = min(start + elems_per_wg, n);
-  var acc = IDENTITY;
-  for (var i = start + lid.x; i < end; i += WORKGROUP_SIZE) {
-    acc = combine(acc, input[i]);
-  }
-  partials[lid.x] = acc;
-
-  workgroupBarrier();
-
-  if (lid.x == 0) {
-    acc = IDENTITY;
-    for (var i = 0u; i < WORKGROUP_SIZE; i++) {
-      acc = combine(acc, partials[i]);
-    }
-    scratch[wid.x] = acc;
-  }
-}
-`;
-}
-
-// Linear scan over the `num_workgroups` partial reductions from the previous phase.
-function buildPhase2Shader(dtype: WgslDtype, op: AssociativeOpWgsl): string {
-  return `
-const IDENTITY = ${op.identity[dtype]};
-
-@group(0) @binding(0) var<storage, read_write> scratch: array<${dtype}>;
-
-${wgslCombineFn(dtype, op)}
-
-@compute @workgroup_size(1)
-fn main(@builtin(global_invocation_id) gid: vec3u) {
-  if (gid.x != 0) {
+export function encodeScan(
+  wake: Wake,
+  pass: GPUComputePassEncoder,
+  input: WakeBuffer<"u32">,
+  scratch: GPUBuffer,
+): void {
+  if (input.length === 0) {
     return;
   }
-  var prev = IDENTITY;
-  for (var i = 0u; i < arrayLength(&scratch); i++) {
-    let x = scratch[i];
-    scratch[i] = prev;
-    prev = combine(prev, x);
+
+  const phase1Pipeline = getOrCreatePipeline(wake.device, "scan:phase1", phase1Code);
+  const phase2Pipeline = getOrCreatePipeline(wake.device, "scan:phase2", phase2Code);
+
+  const levels = calculateScratchLevels(input.length);
+
+  const encodeLevel = (pipeline: GPUComputePipeline, phase: string, i: number): void => {
+    const level = levels[i];
+    const parent: GPUBufferBinding =
+      i === 0
+        ? { buffer: input.raw }
+        : { buffer: scratch, offset: levels[i - 1].byteOffset, size: levels[i - 1].byteSize };
+    const child: GPUBufferBinding = {
+      buffer: scratch,
+      offset: level.byteOffset,
+      size: level.byteSize,
+    };
+
+    pass.setPipeline(pipeline);
+    const bindGroup = wake.device.createBindGroup({
+      label: `wake:scan:${phase}:level${i}:bindGroup`,
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: parent },
+        { binding: 1, resource: child },
+      ],
+    });
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(calculateNumWorkgroups(wake, level.parentLength));
+  };
+
+  for (let i = 0; i < levels.length - 1; i++) {
+    encodeLevel(phase1Pipeline, "phase1", i);
+  }
+  for (let i = levels.length - 1; i >= 0; i--) {
+    encodeLevel(phase2Pipeline, "phase2", i);
   }
 }
-`;
+
+function calculateScratchLevels(n: number): ScratchLevel[] {
+  if (n === 1) {
+    return [{ byteOffset: 0, byteSize: 4, parentLength: 1 }];
+  }
+
+  const ALIGNMENT = 256;
+  const levels: ScratchLevel[] = [];
+  let byteOffset = 0;
+
+  while (n > 1) {
+    const parentLength = n;
+    n = Math.ceil(n / ELEMS_PER_BLOCK);
+    const byteSize = 4 * n;
+    levels.push({ byteOffset, byteSize, parentLength });
+    byteOffset += byteSize;
+    byteOffset = Math.ceil(byteOffset / ALIGNMENT) * ALIGNMENT;
+  }
+
+  return levels;
 }
 
-function buildPhase3Shader(dtype: WgslDtype, op: AssociativeOpWgsl, K: number): string {
-  return `
-const WORKGROUP_SIZE = ${WORKGROUP_SIZE}u;
-const K = ${K}u;
-const IDENTITY = ${op.identity[dtype]};
+function calculateNumWorkgroups(wake: Wake, n: number): number {
+  const targetWorkgroups = Math.ceil(n / ELEMS_PER_WORKGROUP);
+  const maxWorkgroups = wake.device.limits.maxComputeWorkgroupsPerDimension;
+  return Math.min(targetWorkgroups, maxWorkgroups);
+}
 
-@group(0) @binding(0) var<storage, read> input: array<${dtype}>;
-@group(0) @binding(1) var<storage, read> scratch: array<${dtype}>;
-@group(0) @binding(2) var<storage, read_write> output: array<${dtype}>;
+const phase1Code = `
+enable subgroups;
 
-var<workgroup> tile: array<${dtype}, K * WORKGROUP_SIZE>;
-var<workgroup> partials: array<${dtype}, WORKGROUP_SIZE>;
-var<workgroup> tile_total: ${dtype};
+const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
+const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
+const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
+const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
+const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
 
-${wgslCombineFn(dtype, op)}
+@group(0u) @binding(0u) var<storage, read_write> data: array<u32>;
+@group(0u) @binding(1u) var<storage, read_write> block_sums: array<u32>;
+
+fn div_ceil(a: u32, b: u32) -> u32 {
+    return (a + b - 1u) / b;
+}
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(
-  @builtin(global_invocation_id) gid: vec3u,
-  @builtin(local_invocation_id) lid: vec3u,
-  @builtin(workgroup_id) wid: vec3u,
-  @builtin(num_workgroups) num_workgroups: vec3u
+fn phase1(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(num_workgroups) num_wg: vec3<u32>,
+    @builtin(subgroup_invocation_id) sid: u32,
 ) {
-  let n = arrayLength(&input);
-  let elems_per_tile = K * WORKGROUP_SIZE;
-  let num_tiles = (n + elems_per_tile - 1u) / elems_per_tile;
-  let tiles_per_wg = (num_tiles + num_workgroups.x - 1u) / num_workgroups.x;
-  let elems_per_wg = tiles_per_wg * elems_per_tile;
+    let data_len = arrayLength(&data);
+    let num_blocks = div_ceil(data_len, ELEMS_PER_BLOCK);
+    let num_sg = num_wg.x * SUBGROUPS_PER_WORKGROUP;
+    let blocks_per_sg = div_ceil(num_blocks, num_sg);
+    let sg = lid.x / SUBGROUP_SIZE;
+    let global_sg = wid.x * SUBGROUPS_PER_WORKGROUP + sg;
+    let base_block = global_sg * blocks_per_sg;
 
-  var running = scratch[wid.x];
-  for (var t = 0u; t < tiles_per_wg; t++) {
+    // multiple blocks may be assigned in the case where there is a workgroup 
+    // invocation limit
+    for (var b = 0u; b < blocks_per_sg; b++) {
+        let curr_block = base_block + b;
 
-    for (var k = 0u; k < K; k++) {
-      let i = lid.x + k * WORKGROUP_SIZE;
-      let j = (wid.x * tiles_per_wg + t) * elems_per_tile + i;
-      if (j < n) {
-        tile[i] = input[j];
-      } else {
-        tile[i] = IDENTITY;
-      }
+        // thread-local reduction over ELEMS_PER_THREAD elements, strided for
+        // coalesced addressing
+        var sum = 0u;
+        for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
+            let idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
+            if (idx < data_len) {
+                sum += data[idx];
+            }
+        }
+
+        // subgroup reduction
+        sum = subgroupAdd(sum);
+
+        // write block total to block_sums
+        if (sid == 0u && curr_block < num_blocks) {
+            block_sums[curr_block] = sum;
+        }
     }
+}`;
 
-    workgroupBarrier();
+const phase2Code = `
+enable subgroups;
 
-    var acc = IDENTITY;
-    for (var k = 0u; k < K; k++) {
-      let i = lid.x * K + k;
-      acc = combine(acc, tile[i]);
-    }
-    partials[lid.x] = acc;
+const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
+const WORKGROUP_SIZE: u32 = ${WORKGROUP_SIZE};
+const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
+const SUBGROUPS_PER_WORKGROUP: u32 = ${SUBGROUPS_PER_WORKGROUP};
+const ELEMS_PER_BLOCK: u32 = ${ELEMS_PER_BLOCK};
 
-    workgroupBarrier();
+@group(0u) @binding(0u) var<storage, read_write> data: array<u32>;
+@group(0u) @binding(1u) var<storage, read_write> block_sums: array<u32>;
 
-    // if (lid.x == 0) {
-    //   var prev = IDENTITY;
-    //   for (var i = 0u; i < WORKGROUP_SIZE; i++) {
-    //     let x = partials[i];
-    //     partials[i] = prev;
-    //     prev = combine(prev, x);
-    //   }
-    //   tile_total = prev;
-    // }
-
-    // Hillis-Steele over partials
-    for (var d = 1u; d < WORKGROUP_SIZE; d *= 2) {
-      var x = partials[lid.x];
-      if (d <= lid.x) {
-        x = combine(partials[lid.x - d], x);
-      }
-      workgroupBarrier();
-      partials[lid.x] = x;
-      workgroupBarrier();
-    }
-    if (lid.x == 0) {
-      tile_total = partials[WORKGROUP_SIZE - 1u];
-    }
-    var x = IDENTITY;
-    if (lid.x != 0) {
-      x = partials[lid.x - 1];
-    }
-    workgroupBarrier();
-    partials[lid.x] = x;
-
-    workgroupBarrier();
-
-    var prev = combine(running, partials[lid.x]);
-    for (var k = 0u; k < K; k++) {
-      let i = lid.x * K + k;
-      let x = tile[i];
-      tile[i] = prev;
-      prev = combine(prev, x);
-    }
-
-    workgroupBarrier();
-
-    for (var k = 0u; k < K; k++) {
-      let i = lid.x + k * WORKGROUP_SIZE;
-      let j = (wid.x * tiles_per_wg + t) * elems_per_tile + i;
-      if (j < n) {
-        output[j] = tile[i];
-      }
-    }
-
-    running = combine(running, tile_total);
-
-    workgroupBarrier();
-  }
+fn div_ceil(a: u32, b: u32) -> u32 {
+    return (a + b - 1u) / b;
 }
-`;
-}
+
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn phase2(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(num_workgroups) num_wg: vec3<u32>,
+    @builtin(subgroup_invocation_id) sid: u32,
+) {
+    let data_len = arrayLength(&data);
+    let num_blocks = div_ceil(data_len, ELEMS_PER_BLOCK);
+    let num_sg = num_wg.x * SUBGROUPS_PER_WORKGROUP;
+    let blocks_per_sg = div_ceil(num_blocks, num_sg);
+    let sg = lid.x / SUBGROUP_SIZE;
+    let global_sg = wid.x * SUBGROUPS_PER_WORKGROUP + sg;
+    let base_block = global_sg * blocks_per_sg;
+
+    for (var b = 0u; b < blocks_per_sg; b++) {
+        let curr_block = base_block + b;
+
+        // incr begins as the previous block sum
+        var incr = 0u;
+        if (curr_block < num_blocks) {
+            incr = block_sums[curr_block];
+        }
+
+        // scan each portion of SUBGROUP_SIZE elements, incrementing the running incr
+        for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
+            let data_idx = curr_block * ELEMS_PER_BLOCK + sid + k * SUBGROUP_SIZE;
+            var x = 0u;
+            if (data_idx < data_len) {
+                x = data[data_idx];
+            }
+
+            // subgroup scan
+            let incl = subgroupInclusiveAdd(x);
+            if (data_idx < data_len) {
+                data[data_idx] = incr + incl - x;
+            }
+            incr += subgroupBroadcast(incl, SUBGROUP_SIZE - 1u);
+        }
+    }
+}`;
