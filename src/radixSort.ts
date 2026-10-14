@@ -43,12 +43,12 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   const pipelines = [0, 8, 16, 24].map((radixOffset) => {
     const countPipeline = getOrCreatePipeline(
       wake.device,
-      `sort:count:offset${radixOffset}:${keys.dtype}`,
+      `sort:count:${keys.dtype}:offset${radixOffset}`,
       buildCountCode(radixOffset, keys.dtype),
     );
     const reorderPipeline = getOrCreatePipeline(
       wake.device,
-      `sort:reorder:offset${radixOffset}:${keys.dtype}`,
+      `sort:reorder:${keys.dtype}:offset${radixOffset}`,
       buildReorderCode(radixOffset, keys.dtype),
     );
     return { countPipeline, reorderPipeline };
@@ -93,19 +93,19 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   return keys;
 }
 
-const keyTransform = {
+const SORTABLE_BITS: Record<WakeDtype, string> = {
   u32: "x",
   f32: "x ^ (bitcast<u32>((bitcast<i32>(x) >> 31u)) | 0x80000000u)",
 };
 
-function buildCountCode(radix_offset: number, dtype: WakeDtype): string {
+function buildCountCode(radixOffset: number, dtype: WakeDtype): string {
   return `
 const RADIX: u32 = ${RADIX};
 const WORKGROUP_SIZE: u32 = RADIX;
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
 const ELEMS_PER_BLOCK: u32 = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
-const RADIX_OFFSET: u32 = ${radix_offset};
+const RADIX_OFFSET: u32 = ${radixOffset};
 
 @group(0u) @binding(0u) var<storage, read> keys_in: array<u32>;
 @group(0u) @binding(1u) var<storage, read_write> hist: array<u32>;
@@ -117,7 +117,7 @@ fn div_ceil(a: u32, b: u32) -> u32 {
 }
 
 fn digit_of(x: u32) -> u32 {
-    let bits = ${keyTransform[dtype]};
+    let bits = ${SORTABLE_BITS[dtype]};
     return (bits >> RADIX_OFFSET) & (RADIX - 1u);
 }
 
@@ -158,7 +158,7 @@ fn count(
 `;
 }
 
-function buildReorderCode(radix_offset: number, dtype: WakeDtype): string {
+function buildReorderCode(radixOffset: number, dtype: WakeDtype): string {
   return `
 enable subgroups;
 
@@ -170,7 +170,7 @@ const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
 const ELEMS_PER_BLOCK: u32 = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 const ELEMS_PER_SG: u32 = ELEMS_PER_BLOCK / NUM_SUBGROUPS;
 
-const RADIX_OFFSET: u32 = ${radix_offset};
+const RADIX_OFFSET: u32 = ${radixOffset};
 
 @group(0u) @binding(0u) var<storage, read> keys_in: array<u32>;
 @group(0u) @binding(1u) var<storage, read> hist: array<u32>;
@@ -183,7 +183,7 @@ fn div_ceil(a: u32, b: u32) -> u32 {
 }
 
 fn digit_of(x: u32) -> u32 {
-    let bits = ${keyTransform[dtype]};
+    let bits = ${SORTABLE_BITS[dtype]};
     return (bits >> RADIX_OFFSET) & (RADIX - 1u);
 }
 
