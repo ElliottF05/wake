@@ -43,13 +43,13 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   const pipelines = [0, 8, 16, 24].map((radixOffset) => {
     const countPipeline = getOrCreatePipeline(
       wake.device,
-      `sort:count:offset${radixOffset}`,
-      buildCountCode(radixOffset),
+      `sort:count:offset${radixOffset}:${keys.dtype}`,
+      buildCountCode(radixOffset, keys.dtype),
     );
     const reorderPipeline = getOrCreatePipeline(
       wake.device,
-      `sort:reorder:offset${radixOffset}`,
-      buildReorderCode(radixOffset),
+      `sort:reorder:offset${radixOffset}:${keys.dtype}`,
+      buildReorderCode(radixOffset, keys.dtype),
     );
     return { countPipeline, reorderPipeline };
   });
@@ -93,7 +93,12 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   return keys;
 }
 
-function buildCountCode(radix_offset: number): string {
+const keyTransform = {
+  u32: "x",
+  f32: "x ^ (bitcast<u32>((bitcast<i32>(x) >> 31u)) | 0x80000000u)",
+};
+
+function buildCountCode(radix_offset: number, dtype: WakeDtype): string {
   return `
 const RADIX: u32 = ${RADIX};
 const WORKGROUP_SIZE: u32 = RADIX;
@@ -109,6 +114,11 @@ var<workgroup> local_hist: array<atomic<u32>, RADIX>;
 
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
+}
+
+fn digit_of(x: u32) -> u32 {
+    let bits = ${keyTransform[dtype]};
+    return (bits >> RADIX_OFFSET) & (RADIX - 1u);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
@@ -135,7 +145,7 @@ fn count(
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
             let idx = curr_block * ELEMS_PER_BLOCK + lid.x + k * WORKGROUP_SIZE;
             if (idx < n) {
-                let digit = (keys_in[idx] >> RADIX_OFFSET) & (RADIX - 1u);
+                let digit = digit_of(keys_in[idx]);
                 atomicAdd(&local_hist[digit], 1u);
             }
         }
@@ -148,7 +158,7 @@ fn count(
 `;
 }
 
-function buildReorderCode(radix_offset: number): string {
+function buildReorderCode(radix_offset: number, dtype: WakeDtype): string {
   return `
 enable subgroups;
 
@@ -168,12 +178,13 @@ const RADIX_OFFSET: u32 = ${radix_offset};
 
 var<workgroup> sg_hist: array<array<u32, RADIX>, NUM_SUBGROUPS>;
 
-fn digit_of(x: u32) -> u32 {
-    return (x >> RADIX_OFFSET) & (RADIX - 1u);
-}
-
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
+}
+
+fn digit_of(x: u32) -> u32 {
+    let bits = ${keyTransform[dtype]};
+    return (bits >> RADIX_OFFSET) & (RADIX - 1u);
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
