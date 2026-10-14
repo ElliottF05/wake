@@ -8,11 +8,11 @@ import { randomArray } from "./inputs";
 const GPU_BYTES_PER_ELEMENT = 58;
 
 export function jsSortU32(input: Uint32Array): Uint32Array {
-  return Uint32Array.from(input).sort();
+  return input.sort();
 }
 
 export function jsSortF32(input: Float32Array): Float32Array {
-  return Float32Array.from(input).sort();
+  return input.sort();
 }
 
 export async function testSortCorrectness(wake: Wake, sizes: number[]): Promise<void> {

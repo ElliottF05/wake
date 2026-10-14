@@ -43,8 +43,8 @@ if (!crossOriginIsolated) {
 const wake = await Wake.create();
 
 // Correctness tests
-// await testReduceCorrectness(wake, CORRECTNESS_SIZES);
-// await testScanCorrectness(wake, CORRECTNESS_SIZES);
+await testReduceCorrectness(wake, CORRECTNESS_SIZES);
+await testScanCorrectness(wake, CORRECTNESS_SIZES);
 await testSortCorrectness(wake, CORRECTNESS_SIZES);
 
 // Performance tests
