@@ -4,7 +4,7 @@ import { encodeScan, scanScratchBytes } from "./scan";
 import { timestampWrites } from "./timing";
 import type { Wake } from "./wake";
 
-const ELEMS_PER_THREAD = 8; // should this be different in count and reorder?
+const ELEMS_PER_THREAD = 8;
 
 const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
 const RADIX = 256; // don't change this either
@@ -12,7 +12,6 @@ const WORKGROUP_SIZE = RADIX;
 
 const ELEMS_PER_BLOCK = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
-// TODO: should i call this "sort" or "radixSort"?
 export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): WakeBuffer<D> {
   const n = keys.length;
   if (n <= 1) {
@@ -33,15 +32,7 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   const keyBuffers = [keys.raw, keysScratch];
 
   const numBlocks = Math.ceil(n / ELEMS_PER_BLOCK);
-  // TODO: should i make encodeScan take in a raw GPUBuffer instead of WakeBuffer?
-  const hist = wake.wrap(
-    wake.device.createBuffer({
-      label: "wake:sort:hist",
-      size: 4 * RADIX * numBlocks,
-      usage: GPUBufferUsage.STORAGE,
-    }),
-    "u32",
-  );
+  const hist = wake.empty(RADIX * numBlocks, "u32");
 
   const scanScratch = wake.device.createBuffer({
     label: "wake:sort:scanScratch",
@@ -49,29 +40,29 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
     usage: GPUBufferUsage.STORAGE,
   });
 
-  const pipelines = [0, 8, 16, 24].map((radix_offset) => {
+  const pipelines = [0, 8, 16, 24].map((radixOffset) => {
     const countPipeline = getOrCreatePipeline(
       wake.device,
-      `wake:sort:count:offset${radix_offset}`,
-      buildCountCode(radix_offset),
+      `sort:count:offset${radixOffset}`,
+      buildCountCode(radixOffset),
     );
     const reorderPipeline = getOrCreatePipeline(
       wake.device,
-      `wake:sort:reoder:offset${radix_offset}`,
-      buildReorderCode(radix_offset),
+      `sort:reorder:offset${radixOffset}`,
+      buildReorderCode(radixOffset),
     );
     return { countPipeline, reorderPipeline };
   });
 
   const numWorkgroups = Math.min(numBlocks, wake.device.limits.maxComputeWorkgroupsPerDimension);
 
-  pipelines.forEach(({ countPipeline, reorderPipeline }, level) => {
+  pipelines.forEach(({ countPipeline, reorderPipeline }, passIndex) => {
     pass.setPipeline(countPipeline);
     const countBindGroup = wake.device.createBindGroup({
-      label: `wake:sort:count:level${level}:bindGroup`,
+      label: `wake:sort:count:pass${passIndex}:bindGroup`,
       layout: countPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: keyBuffers[level % 2] } },
+        { binding: 0, resource: { buffer: keyBuffers[passIndex % 2] } },
         { binding: 1, resource: { buffer: hist.raw } },
       ],
     });
@@ -80,14 +71,14 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
 
     encodeScan(wake, pass, hist, scanScratch);
 
-    pass.setPipeline(countPipeline);
+    pass.setPipeline(reorderPipeline);
     const reorderBindGroup = wake.device.createBindGroup({
-      label: `wake:sort:reorder:level${level}:bindGroup`,
+      label: `wake:sort:reorder:pass${passIndex}:bindGroup`,
       layout: reorderPipeline.getBindGroupLayout(0),
       entries: [
-        { binding: 0, resource: { buffer: keyBuffers[level % 2] } },
+        { binding: 0, resource: { buffer: keyBuffers[passIndex % 2] } },
         { binding: 1, resource: { buffer: hist.raw } },
-        { binding: 2, resource: { buffer: keyBuffers[(level + 1) % 2] } },
+        { binding: 2, resource: { buffer: keyBuffers[(passIndex + 1) % 2] } },
       ],
     });
     pass.setBindGroup(0, reorderBindGroup);
@@ -98,6 +89,7 @@ export function sort<D extends WakeDtype>(wake: Wake, keys: WakeBuffer<D>): Wake
   wake.device.queue.submit([encoder.finish()]);
   keysScratch.destroy();
   hist.destroy();
+  scanScratch.destroy();
   return keys;
 }
 
@@ -225,9 +217,10 @@ fn reorder(
 
             var peers = ~subgroupBallot(digit == INVALID_DIGIT).x;
             for (var bit = 0u; bit < 8u; bit++) {
-                let b = (digit >> bit) & 1u;
-                // b == 1 -> mask 0 (keep ballot); b == 0 -> mask 0xFFFFFFFF (complement)
-                peers &= subgroupBallot(b == 1u).x ^ (b - 1u);
+                let bit_set = (digit >> bit) & 1u;
+                // bit_set == 1 -> mask 0 (keep ballot)
+                // bit_set == 0 -> mask 0xFFFFFFFF (complement)
+                peers &= subgroupBallot(bit_set == 1u).x ^ (bit_set - 1u);
             }
 
             let leader = countTrailingZeros(peers);
