@@ -55,9 +55,9 @@ export async function testCorrectness<D extends WakeDtype>(
 
   for (const n of sizes) {
     const data = test.makeInput(n);
-    const expected = test.reference(data);
     const tolerance = test.tolerance ? test.tolerance(data) : 0;
     const input = wake.buffer(data) as WakeBuffer<D>;
+    const expected = test.reference(data);
     const output = test.run(input);
     const actual = await output.read();
 
@@ -144,12 +144,13 @@ export function benchCpu<D extends WakeDtype>(
   for (const n of sizes) {
     const data = bench.makeInput(n);
 
-    sink = bench.run(data);
+    sink = bench.run(data.slice() as WakeArrays[D]);
 
     const wallMs: number[] = [];
     for (let trial = 0; trial < trials; trial++) {
+      const scratch = data.slice() as WakeArrays[D];
       const start = performance.now();
-      sink = bench.run(data);
+      sink = bench.run(scratch);
       wallMs.push(performance.now() - start);
     }
 
