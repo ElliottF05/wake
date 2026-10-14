@@ -2,6 +2,7 @@
 // TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
+import { sort } from "./radixSort";
 import { reduce, type WakeReduceOp } from "./reduce";
 import { encodeScan, scan } from "./scan";
 import { readLastTimingMs } from "./timing";
@@ -71,6 +72,10 @@ export class Wake {
 
   encodeScan(pass: GPUComputePassEncoder, input: WakeBuffer<"u32">, scratch: GPUBuffer): void {
     encodeScan(this, pass, input, scratch);
+  }
+
+  sort<D extends WakeDtype>(keys: WakeBuffer<D>): WakeBuffer<D> {
+    return sort(this, keys);
   }
 
   getLastTimingMs(): Promise<number> {

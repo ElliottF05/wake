@@ -150,6 +150,8 @@ fn count(
 
 function buildReorderCode(radix_offset: number): string {
   return `
+enable subgroups;
+
 const RADIX: u32 = ${RADIX};
 const WORKGROUP_SIZE: u32 = RADIX;
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};

@@ -2,6 +2,7 @@ import { Wake } from "../src/index";
 import { type BenchResult, reportResults } from "./harness";
 import { benchReduceCpu, benchReduceGpu, testReduceCorrectness } from "./reduceTests";
 import { benchScanCpu, benchScanGpu, testScanCorrectness } from "./scanTests";
+import { testSortCorrectness } from "./sortTests";
 
 const CORRECTNESS_SIZES = [
   0,
@@ -13,6 +14,9 @@ const CORRECTNESS_SIZES = [
   1023,
   1024,
   1025,
+  2047,
+  2048,
+  2049,
   1000003,
   1048575,
   1048576,
@@ -35,6 +39,7 @@ const wake = await Wake.create();
 // Correctness tests
 await testReduceCorrectness(wake, CORRECTNESS_SIZES);
 await testScanCorrectness(wake, CORRECTNESS_SIZES);
+await testSortCorrectness(wake, CORRECTNESS_SIZES);
 
 // Performance tests
 const rows: BenchResult[] = [
