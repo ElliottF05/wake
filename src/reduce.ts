@@ -47,7 +47,7 @@ export function reduce<D extends WakeDtype>(
   const pipeline = getOrCreatePipeline(
     wake.device,
     `reduce:${op}:${input.dtype}`,
-    buildShaderCode(op, input.dtype),
+    buildReduceCode(op, input.dtype),
   );
   pass.setPipeline(pipeline);
 
@@ -112,7 +112,7 @@ const REDUCE_OPS: Record<
   },
 };
 
-function buildShaderCode(op: WakeReduceOp, dtype: WakeDtype): string {
+function buildReduceCode(op: WakeReduceOp, dtype: WakeDtype): string {
   const { combine, subgroupReduce, identity } = REDUCE_OPS[op];
   return `
 enable subgroups;

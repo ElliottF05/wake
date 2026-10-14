@@ -27,13 +27,15 @@ export function scanScratchBytes(n: number): number {
 }
 
 export function scan(wake: Wake, input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
+  const n = input.length;
   const encoder = wake.device.createCommandEncoder({ label: "wake:scan:encoder" });
   const pass = encoder.beginComputePass({
     label: "wake:scan:pass",
     timestampWrites: timestampWrites(wake.device),
   });
   const scratch = wake.device.createBuffer({
-    size: scanScratchBytes(input.length),
+    label: "wake:scan:scratch",
+    size: scanScratchBytes(n),
     usage: GPUBufferUsage.STORAGE,
   });
   encodeScan(wake, pass, input, scratch);

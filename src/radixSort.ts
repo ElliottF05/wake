@@ -4,11 +4,10 @@ import { encodeScan, scanScratchBytes } from "./scan";
 import { timestampWrites } from "./timing";
 import type { Wake } from "./wake";
 
-const ELEMS_PER_THREAD = 8;
-
 const SUBGROUP_SIZE = 32; // MUST NOT BE CHANGED
 const RADIX = 256; // don't change this either
 const WORKGROUP_SIZE = RADIX;
+const ELEMS_PER_THREAD = 8;
 
 const ELEMS_PER_BLOCK = WORKGROUP_SIZE * ELEMS_PER_THREAD;
 
@@ -165,10 +164,10 @@ enable subgroups;
 const RADIX: u32 = ${RADIX};
 const WORKGROUP_SIZE: u32 = RADIX;
 const SUBGROUP_SIZE: u32 = ${SUBGROUP_SIZE};
-const NUM_SUBGROUPS: u32 = WORKGROUP_SIZE / SUBGROUP_SIZE;
+const SUBGROUPS_PER_WORKGROUP: u32 = WORKGROUP_SIZE / SUBGROUP_SIZE;
 const ELEMS_PER_THREAD: u32 = ${ELEMS_PER_THREAD};
 const ELEMS_PER_BLOCK: u32 = WORKGROUP_SIZE * ELEMS_PER_THREAD;
-const ELEMS_PER_SG: u32 = ELEMS_PER_BLOCK / NUM_SUBGROUPS;
+const ELEMS_PER_SUBGROUP: u32 = ELEMS_PER_BLOCK / SUBGROUPS_PER_WORKGROUP;
 
 const RADIX_OFFSET: u32 = ${radixOffset};
 
@@ -176,7 +175,7 @@ const RADIX_OFFSET: u32 = ${radixOffset};
 @group(0u) @binding(1u) var<storage, read> hist: array<u32>;
 @group(0u) @binding(2u) var<storage, read_write> keys_out: array<u32>;
 
-var<workgroup> sg_hist: array<array<u32, RADIX>, NUM_SUBGROUPS>;
+var<workgroup> sg_hist: array<array<u32, RADIX>, SUBGROUPS_PER_WORKGROUP>;
 
 fn div_ceil(a: u32, b: u32) -> u32 {
     return (a + b - 1u) / b;
@@ -209,7 +208,7 @@ fn reorder(
             break;
         }
 
-        for (var s = 0u; s < NUM_SUBGROUPS; s++) {
+        for (var s = 0u; s < SUBGROUPS_PER_WORKGROUP; s++) {
             sg_hist[s][lid.x] = 0u;
         }
         workgroupBarrier();
@@ -217,7 +216,7 @@ fn reorder(
         var partial_rank: array<u32, ELEMS_PER_THREAD>;
         var local_keys: array<u32, ELEMS_PER_THREAD>;
 
-        let base = curr_block * ELEMS_PER_BLOCK + sg * ELEMS_PER_SG + sid;
+        let base = curr_block * ELEMS_PER_BLOCK + sg * ELEMS_PER_SUBGROUP + sid;
         for (var k = 0u; k < ELEMS_PER_THREAD; k++) {
             let idx = base + k * SUBGROUP_SIZE;
             var key = 0u;
@@ -251,7 +250,7 @@ fn reorder(
         workgroupBarrier();
 
         var sum = 0u;
-        for (var s = 0u; s < NUM_SUBGROUPS; s++) {
+        for (var s = 0u; s < SUBGROUPS_PER_WORKGROUP; s++) {
             let x = sg_hist[s][lid.x];
             sg_hist[s][lid.x] = sum;
             sum += x;

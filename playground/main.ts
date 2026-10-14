@@ -53,7 +53,7 @@ const rows: BenchResult[] = [
   // ...benchReduceCpu(PERF_SIZES, TRIALS),
   // ...(await benchScanGpu(wake, PERF_SIZES, TRIALS)),
   // ...benchScanCpu(PERF_SIZES, TRIALS),
-  ...(await benchSortGpu(wake, SORT_PERF_SIZES, TRIALS)),
-  ...benchSortCpu(SORT_PERF_SIZES, TRIALS),
+  // ...(await benchSortGpu(wake, SORT_PERF_SIZES, TRIALS)),
+  // ...benchSortCpu(SORT_PERF_SIZES, TRIALS),
 ];
 reportResults(rows);
