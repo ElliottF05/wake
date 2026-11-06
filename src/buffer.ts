@@ -11,11 +11,13 @@ export type WakeArray = WakeArrays[WakeDtype];
 
 const BUFFER_USAGE = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
 
+/** A typed array of f32 or u32 elements stored on the GPU. */
 export class WakeBuffer<D extends WakeDtype = "f32"> {
   private readonly wake: Wake;
   private readonly owned: boolean;
   private destroyed = false;
 
+  /** The underlying `GPUBuffer`. */
   readonly raw: GPUBuffer;
   readonly dtype: D;
   readonly length: number;
@@ -31,8 +33,15 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     this.length = raw.size / 4;
   }
 
+  /**
+   * Copies a `Float32Array` to a new GPU buffer. Later changes to the array do not affect it.
+   */
   static from(wake: Wake, data: Float32Array): WakeBuffer<"f32">;
+  /**
+   * Copies a `Uint32Array` to a new GPU buffer. Later changes to the array do not affect it.
+   */
   static from(wake: Wake, data: Uint32Array): WakeBuffer<"u32">;
+  /** Copies a typed array to a new GPU buffer. Later changes to the array do not affect it. */
   static from(wake: Wake, data: WakeArray): WakeBuffer<WakeDtype>;
   static from(wake: Wake, data: WakeArray): WakeBuffer<WakeDtype> {
     let dtype: WakeDtype;
@@ -56,6 +65,7 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     return new WakeBuffer<WakeDtype>(wake, raw, dtype, true);
   }
 
+  /** Creates a new zero-filled GPU buffer with the given length and dtype. */
   static empty<D extends WakeDtype>(wake: Wake, length: number, dtype: D): WakeBuffer<D> {
     const raw = wake.device.createBuffer({
       label: "wake:empty",
@@ -65,6 +75,12 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     return new WakeBuffer<D>(wake, raw, dtype, true);
   }
 
+  /**
+   * Wraps an existing `GPUBuffer` (without copying it) so WAKE can use it. Meant for apps that
+   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. You are
+   * responsible for destroying the underlying `GPUBuffer` yourself, since destroying the
+   * `WakeBuffer` leaves it untouched.
+   */
   static wrap<D extends WakeDtype>(wake: Wake, raw: GPUBuffer, dtype: D): WakeBuffer<D> {
     return new WakeBuffer<D>(wake, raw, dtype, false);
   }
@@ -73,6 +89,7 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     return this.length * 4;
   }
 
+  /** Copies the buffer's contents back to JavaScript as a new typed array. */
   async read(): Promise<WakeArrays[D]> {
     if (this.destroyed) {
       throw new Error("attempted to read from a destroyed WakeBuffer");
@@ -97,6 +114,7 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     }
   }
 
+  /** Overwrites the buffer's contents with a typed array of the same byte length. */
   write(data: WakeArrays[D]): void {
     if (this.destroyed) {
       throw new Error("attempted to write to a destroyed WakeBuffer");
@@ -109,6 +127,47 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     this.wake.device.queue.writeBuffer(this.raw, 0, data);
   }
 
+  /**
+   * Sums all elements, returning a new one-element buffer containing the result. The result is 0
+   * for an empty input buffer, and u32 sums wrap on overflow.
+   */
+  sum(): WakeBuffer<D> {
+    return this.wake.sum(this);
+  }
+
+  /**
+   * Finds the smallest element, returning a new one-element buffer containing the result. Throws
+   * on an empty input buffer.
+   */
+  min(): WakeBuffer<D> {
+    return this.wake.min(this);
+  }
+
+  /**
+   * Finds the largest element, returning a new one-element buffer containing the result. Throws on
+   * an empty input buffer.
+   */
+  max(): WakeBuffer<D> {
+    return this.wake.max(this);
+  }
+
+  /**
+   * Computes an exclusive prefix sum in place, returning the same buffer. Only u32 is supported.
+   * Sums wrap on overflow.
+   */
+  scan(this: WakeBuffer<"u32">): WakeBuffer<"u32"> {
+    return this.wake.scan(this);
+  }
+
+  /** Sorts in ascending order, in place, and returns the same buffer. The sort is stable. */
+  sort(): WakeBuffer<D> {
+    return this.wake.sort(this);
+  }
+
+  /**
+   * Frees the GPU buffer. Safe to call more than once. Buffers created with `wrap()` are not
+   * freed, and must be destroyed by you.
+   */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

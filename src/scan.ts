@@ -17,6 +17,7 @@ type ScratchLevel = {
   parentLength: number;
 };
 
+/** Size in bytes of the scratch buffer that `encodeScan()` needs for an input of length `n`. */
 export function scanScratchBytes(n: number): number {
   const levels = calculateScratchLevels(n);
   if (levels.length === 0) {
