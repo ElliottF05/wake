@@ -69,8 +69,8 @@ JavaScript:
 *Kernel-only time is GPU execution time alone. Round-trip time also includes copying the input to
 the GPU and reading the result back.*
 
-- At large sizes, the reduce and scan kernels reach about 95% and 90% of the M2's theoretical peak memory bandwidth.
-- Data movement between the CPU and GPU is a large cost. Sort does enough work per element to stay much faster than JavaScript even round trip. Reduce and scan are fastest when data is already on the GPU.
+- At large sizes, the reduce and scan kernels reach about 95% (reduce) and up to 90% (scan) of the M2's theoretical peak memory bandwidth.
+- Data movement between the CPU and GPU is a large cost. Sort does enough work per element to stay much faster than JavaScript even in round-trip time. Reduce and scan are fastest when data is already on the GPU.
 - WAKE beats JavaScript in round-trip time from about 2^15 elements for sort and about
   2^20 for reduce. For kernel-only time, WAKE wins starting from 2^12 to 2^16 elements,
   depending on the primitive.
@@ -99,7 +99,7 @@ rounded to 100 µs.
 ## Future work
 
 - **More primitives.** Key-value sort, matrix multiplication, etc.
-- **Support for subgroup sizes other than 32.**. Allows WAKE to run on more GPUs.
+- **Support for subgroup sizes other than 32**, so WAKE can run on more GPUs.
 
 ## License
 
