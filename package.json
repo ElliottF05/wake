@@ -1,15 +1,42 @@
 {
-  "name": "wake",
-  "version": "0.0.0",
-  "description": "WebGPU Approachable Kernel Engine — Democratizing GPU-accelerated computing for the browser.",
-  "type": "module",
-  "private": true,
+  "name": "@elliottf05/wake",
+  "version": "0.1.0",
+  "description": "WebGPU Approachable Kernel Engine: approachable GPU computing in the browser, for JavaScript developers.",
+  "keywords": [
+    "webgpu",
+    "gpu",
+    "reduce",
+    "prefix-scan",
+    "radix-sort",
+    "wgsl"
+  ],
+  "homepage": "https://github.com/ElliottF05/wake#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ElliottF05/wake.git"
+  },
   "license": "MIT",
+  "author": "Elliott Faa",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/wake.js"
+    }
+  },
+  "module": "./dist/wake.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite playground",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "build:playground": "vite build playground",
     "typecheck": "tsc --noEmit",
-    "check": "biome check ."
+    "check": "biome check .",
+    "prepublishOnly": "npm run typecheck && npm run check && npm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
