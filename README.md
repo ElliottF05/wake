@@ -1,9 +1,9 @@
 # WAKE
 
-**WebGPU Approachable Kernel Engine**: GPU primitives for JavaScript developers, running in the
-browser.
+**WebGPU Approachable Kernel Engine**: approachable GPU computing in the browser, for JavaScript
+developers.
 
-WAKE prvides JavaScript developers with fast, GPU-accelerated reduction, prefix scan, and sort through
+WAKE provides JavaScript developers with fast, GPU-accelerated reduction, prefix scan, and sort through
 calls that look like ordinary JavaScript. There are no shaders to write and no pipelines,
 workgroups, or buffer usage flags to manage.
 
@@ -66,12 +66,13 @@ JavaScript:
 | Reduce (f32 sum) | 22x | 1.37x |
 | Scan (u32) | 9.2x | 0.79x |
 
-- **Kernel-only time** is GPU execution time alone, **Round-trip time** also includes copying the
-  input to the GPU and reading the result back.
+*Kernel-only time is GPU execution time alone. Round-trip time also includes copying the input to
+the GPU and reading the result back.*
+
 - At large sizes, the reduce and scan kernels reach about 95% and 90% of the M2's theoretical peak memory bandwidth.
 - Data movement between the CPU and GPU is a large cost. Sort does enough work per element to stay much faster than JavaScript even round trip. Reduce and scan are fastest when data is already on the GPU.
 - WAKE beats JavaScript in round-trip time from about 2^15 elements for sort and about
-  2^20 for reduce. For kernel-only time, WAKE wins starting from 2^12 to 2^16 elements, 
+  2^20 for reduce. For kernel-only time, WAKE wins starting from 2^12 to 2^16 elements,
   depending on the primitive.
 
 All results come from a single device, so these numbers may differ on other hardware.
@@ -94,6 +95,11 @@ The playground checks every primitive against a plain JavaScript reference and b
 across input sizes. Accurate small-size GPU timings need Chrome's
 `chrome://flags/#enable-webgpu-developer-features` flag, since timestamp queries are otherwise
 rounded to 100 µs.
+
+## Future work
+
+- **More primitives.** Key-value sort, matrix multiplication, etc.
+- **Support for subgroup sizes other than 32.**. Allows WAKE to run on more GPUs.
 
 ## License
 
