@@ -31,9 +31,9 @@
     "dist"
   ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
-    "build:playground": "vite build",
+    "dev": "vite playground",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "build:playground": "vite build playground",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "prepublishOnly": "npm run typecheck && npm run check && npm run build"
