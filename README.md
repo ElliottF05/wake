@@ -21,10 +21,16 @@ optimized building blocks that developers call without writing GPU code. WAKE ai
 for WebGPU, with code comparable in simplicity to plain JavaScript and performance faster than
 JavaScript above certain input sizes.
 
+## Installation
+
+```bash
+npm install @elliottf05/wake
+```
+
 ## Example
 
 ```js
-import { Wake } from "wake";
+import { Wake } from "@elliottf05/wake";
 
 const wake = await Wake.create();
 
@@ -84,11 +90,17 @@ All results come from a single device, so these numbers may differ on other hard
 
 ## Development
 
-WAKE is not yet published as a package. To run the test and benchmark playground locally:
+To run the test and benchmark playground locally:
 
 ```bash
 npm install
 npm run dev
+```
+
+To build the package into `dist/`:
+
+```bash
+npm run build
 ```
 
 The playground checks every primitive against a plain JavaScript reference and benchmarks it
