@@ -109,6 +109,26 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     this.wake.device.queue.writeBuffer(this.raw, 0, data);
   }
 
+  sum(): WakeBuffer<D> {
+    return this.wake.sum(this);
+  }
+
+  min(): WakeBuffer<D> {
+    return this.wake.min(this);
+  }
+
+  max(): WakeBuffer<D> {
+    return this.wake.max(this);
+  }
+
+  scan(this: WakeBuffer<"u32">): WakeBuffer<"u32"> {
+    return this.wake.scan(this);
+  }
+
+  sort(): WakeBuffer<D> {
+    return this.wake.sort(this);
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;

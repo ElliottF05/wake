@@ -1,5 +1,4 @@
 // TODO: add comments to public-facing contents (not just in this file) when things are more stable
-// TODO: add `wake.sum()`, `wake.min()`, etc for convenience? Also maybe `wakeBuffer.sum()` etc
 
 import { type WakeArray, WakeBuffer, type WakeDtype } from "./buffer";
 import { sort } from "./radixSort";
@@ -64,6 +63,18 @@ export class Wake {
 
   reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: WakeReduceOp): WakeBuffer<D> {
     return reduce(this, input, op);
+  }
+
+  sum<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
+    return reduce(this, input, "sum");
+  }
+
+  min<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
+    return reduce(this, input, "min");
+  }
+
+  max<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
+    return reduce(this, input, "max");
   }
 
   scan(input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
