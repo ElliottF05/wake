@@ -59,11 +59,11 @@ export class Wake {
   }
 
   /**
-   * Copies a `Float32Array` to a new f32 GPU buffer. Later changes to the array do not affect it.
+   * Copies a `Float32Array` to a new GPU buffer. Later changes to the array do not affect it.
    */
   buffer(data: Float32Array): WakeBuffer<"f32">;
   /**
-   * Copies a `Uint32Array` to a new u32 GPU buffer. Later changes to the array do not affect it.
+   * Copies a `Uint32Array` to a new GPU buffer. Later changes to the array do not affect it.
    */
   buffer(data: Uint32Array): WakeBuffer<"u32">;
   /** Copies a typed array to a new GPU buffer. Later changes to the array do not affect it. */
@@ -73,9 +73,9 @@ export class Wake {
   }
 
   /**
-   * Wraps an existing `GPUBuffer` so WAKE can run on it without copying. Meant for apps that
-   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage, and stays
-   * owned by the caller.
+   * Wraps an existing `GPUBuffer` (without copying it) so WAKE can use it. Meant for apps that
+   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. It is
+   * left for you to destroy, since destroying the `WakeBuffer` does not destroy it.
    */
   wrap<D extends WakeDtype>(raw: GPUBuffer, dtype: D): WakeBuffer<D> {
     return WakeBuffer.wrap(this, raw, dtype);
@@ -88,15 +88,15 @@ export class Wake {
 
   /**
    * Combines all elements with the given op, returning a new one-element buffer containing the
-   * result. `min` and `max` throw on an empty buffer.
+   * result. `min` and `max` throw on an empty input buffer.
    */
   reduce<D extends WakeDtype>(input: WakeBuffer<D>, op: WakeReduceOp): WakeBuffer<D> {
     return reduce(this, input, op);
   }
 
   /**
-   * Sums all elements, returning a new one-element buffer containing the result. u32 sums wrap on
-   * overflow.
+   * Sums all elements, returning a new one-element buffer containing the result. The result is 0
+   * for an empty input buffer, and u32 sums wrap on overflow.
    */
   sum<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
     return reduce(this, input, "sum");
@@ -104,7 +104,7 @@ export class Wake {
 
   /**
    * Finds the smallest element, returning a new one-element buffer containing the result. Throws
-   * on an empty buffer.
+   * on an empty input buffer.
    */
   min<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
     return reduce(this, input, "min");
@@ -112,15 +112,15 @@ export class Wake {
 
   /**
    * Finds the largest element, returning a new one-element buffer containing the result. Throws on
-   * an empty buffer.
+   * an empty input buffer.
    */
   max<D extends WakeDtype>(input: WakeBuffer<D>): WakeBuffer<D> {
     return reduce(this, input, "max");
   }
 
   /**
-   * Computes an exclusive prefix sum in place, returning the same buffer. Only u32 is supported,
-   * and sums wrap on overflow.
+   * Computes an exclusive prefix sum in place, returning the same buffer. Only u32 is supported.
+   * Sums wrap on overflow.
    */
   scan(input: WakeBuffer<"u32">): WakeBuffer<"u32"> {
     return scan(this, input);

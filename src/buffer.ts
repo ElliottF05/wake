@@ -77,8 +77,8 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
 
   /**
    * Wraps an existing `GPUBuffer` (without copying it) so WAKE can use it. Meant for apps that
-   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage, and remains
-   * owned by the caller.
+   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. It is
+   * left for you to destroy, since it is not destroyed when the wrapping `WakeBuffer` is destroyed.
    */
   static wrap<D extends WakeDtype>(wake: Wake, raw: GPUBuffer, dtype: D): WakeBuffer<D> {
     return new WakeBuffer<D>(wake, raw, dtype, false);
@@ -127,8 +127,8 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
   }
 
   /**
-   * Sums all elements, returning a new one-element buffer containing the result. The result is 0 for an empty input. u32 sums wrap on
-   * overflow.
+   * Sums all elements, returning a new one-element buffer containing the result. The result is 0
+   * for an empty input buffer, and u32 sums wrap on overflow.
    */
   sum(): WakeBuffer<D> {
     return this.wake.sum(this);
@@ -136,7 +136,7 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
 
   /**
    * Finds the smallest element, returning a new one-element buffer containing the result. Throws
-   * on an empty buffer.
+   * on an empty input buffer.
    */
   min(): WakeBuffer<D> {
     return this.wake.min(this);
@@ -144,14 +144,15 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
 
   /**
    * Finds the largest element, returning a new one-element buffer containing the result. Throws on
-   * an empty buffer.
+   * an empty input buffer.
    */
   max(): WakeBuffer<D> {
     return this.wake.max(this);
   }
 
   /**
-   * Computes an exclusive prefix sum in place, returning the same buffer. Only u32 is supported. Sums wrap on overflow.
+   * Computes an exclusive prefix sum in place, returning the same buffer. Only u32 is supported.
+   * Sums wrap on overflow.
    */
   scan(this: WakeBuffer<"u32">): WakeBuffer<"u32"> {
     return this.wake.scan(this);
@@ -162,7 +163,9 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
     return this.wake.sort(this);
   }
 
-  /** Frees the GPU buffer. Safe to call more than once. Does not free if the `WakeBuffer` was created from `wrap()`. */
+  /**
+   * Frees the GPU buffer. Safe to call more than once. Buffers created with `wrap()` are not freed.
+   */
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
