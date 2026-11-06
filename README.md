@@ -40,7 +40,7 @@ copying the input again:
 
 ```js
 const values = wake.buffer(data); // copy to the GPU once
-const [total] = await values.sum().read(); // only one value is read back
+const [total] = await values.sum().read(); // only the result (one value) is read back
 const [largest] = await values.max().read();
 ```
 
