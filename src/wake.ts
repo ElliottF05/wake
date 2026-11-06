@@ -74,8 +74,9 @@ export class Wake {
 
   /**
    * Wraps an existing `GPUBuffer` (without copying it) so WAKE can use it. Meant for apps that
-   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. It is
-   * left for you to destroy, since destroying the `WakeBuffer` does not destroy it.
+   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. You are
+   * responsible for destroying the underlying `GPUBuffer` yourself, since destroying the
+   * `WakeBuffer` leaves it untouched.
    */
   wrap<D extends WakeDtype>(raw: GPUBuffer, dtype: D): WakeBuffer<D> {
     return WakeBuffer.wrap(this, raw, dtype);

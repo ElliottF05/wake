@@ -77,8 +77,9 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
 
   /**
    * Wraps an existing `GPUBuffer` (without copying it) so WAKE can use it. Meant for apps that
-   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. It is
-   * left for you to destroy, since it is not destroyed when the wrapping `WakeBuffer` is destroyed.
+   * already use WebGPU directly. The buffer needs STORAGE, COPY_SRC, and COPY_DST usage. You are
+   * responsible for destroying the underlying `GPUBuffer` yourself, since destroying the
+   * `WakeBuffer` leaves it untouched.
    */
   static wrap<D extends WakeDtype>(wake: Wake, raw: GPUBuffer, dtype: D): WakeBuffer<D> {
     return new WakeBuffer<D>(wake, raw, dtype, false);
@@ -164,7 +165,8 @@ export class WakeBuffer<D extends WakeDtype = "f32"> {
   }
 
   /**
-   * Frees the GPU buffer. Safe to call more than once. Buffers created with `wrap()` are not freed.
+   * Frees the GPU buffer. Safe to call more than once. Buffers created with `wrap()` are not
+   * freed, and must be destroyed by you.
    */
   destroy(): void {
     if (this.destroyed) return;
