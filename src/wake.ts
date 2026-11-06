@@ -8,12 +8,15 @@ import { readLastTimingMs } from "./timing";
 
 export class Wake {
   readonly device: GPUDevice;
+  private readonly owned: boolean;
 
-  private constructor(device: GPUDevice) {
+  private constructor(device: GPUDevice, owned: boolean) {
     this.device = device;
+    this.owned = owned;
   }
 
   static async create(device?: GPUDevice): Promise<Wake> {
+    const owned = device === undefined;
     const requiredFeatures: GPUFeatureName[] = ["subgroups", "timestamp-query"];
     if (!device) {
       if (globalThis.navigator?.gpu == null) {
@@ -39,11 +42,11 @@ export class Wake {
         }
       }
     }
-    return new Wake(device);
+    return new Wake(device, owned);
   }
 
   destroy(): void {
-    this.device.destroy();
+    if (this.owned) this.device.destroy();
   }
 
   buffer(data: Float32Array): WakeBuffer<"f32">;
